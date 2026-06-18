@@ -21,7 +21,7 @@ class CozeService:
         self.token = settings.COZE_TOKEN
 
     async def _request(self, prompt: str, user: str = "student") -> dict:
-        """向 Coze 发送请求"""
+        """向 Coze 发送请求（v3 API）"""
         if not self.bot_id or not self.token:
             raise ValueError(
                 "请先配置 COZE_BOT_ID 和 COZE_TOKEN 环境变量"
@@ -34,7 +34,7 @@ class CozeService:
 
         payload = {
             "bot_id": self.bot_id,
-            "user": user,
+            "user_id": user,
             "stream": False,
             "additional_messages": [
                 {
@@ -50,10 +50,16 @@ class CozeService:
             resp.raise_for_status()
             data = resp.json()
 
-        # Coze 返回格式：data.replies[0].content 包含 LLM 回复
+        # Coze v3 返回格式：data 直接包含 replies
+        if data.get("code") != 0:
+            raise ValueError(f"Unexpected Coze response: {data}")
+
         if "data" in data and "replies" in data["data"]:
             reply = data["data"]["replies"][0]["content"]
             return self._parse_response(reply)
+        elif "data" in data and data["data"].get("status") == "in_progress":
+            # 非流式请求需要等待或直接获取内容
+            return {"raw": data["data"].get("status", "processing")}
         raise ValueError(f"Unexpected Coze response: {data}")
 
     @staticmethod
