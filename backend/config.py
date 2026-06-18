@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
 
     # Coze API
-    COZE_API_URL: str = "https://api.coze.cn/v1/chat"
+    COZE_API_URL: str = "https://api.coze.cn/v3/chat"
     COZE_BOT_ID: str = os.getenv("COZE_BOT_ID", "")
     COZE_TOKEN: str = os.getenv("COZE_TOKEN", "")
 
