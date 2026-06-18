@@ -1,0 +1,141 @@
+"""
+SQLAlchemy ORM 数据模型
+"""
+from sqlalchemy import (
+    Column, Integer, String, Float, Text, DateTime, ForeignKey, JSON,
+    Index, func
+)
+from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from database import Base
+
+
+class Student(Base):
+    __tablename__ = "students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False)
+    student_id = Column(String(30), unique=True, nullable=False, index=True)
+    school_level = Column(String(10), nullable=False)  # 小学/初中/高中
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    homework_submissions = relationship("HomeworkSubmission", back_populates="student")
+    exam_attempts = relationship("ExamAttempt", back_populates="student")
+    error_records = relationship("ErrorRecord", back_populates="student")
+
+
+class Teacher(Base):
+    __tablename__ = "teachers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False)
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(128), nullable=False)
+    school = Column(String(100), default="")
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    token = Column(String(512), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class HomeworkSubmission(Base):
+    __tablename__ = "homework_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    photo_url = Column(String(512), nullable=False)
+    extracted_text = Column(Text, default="")
+    student_answers = Column(Text, default="")
+    correct_count = Column(Integer, default=0)
+    total_count = Column(Integer, default=0)
+    score = Column(Float, default=0)
+    comments = Column(Text, default="")
+    wrong_questions_json = Column(JSON, default=list)
+    status = Column(String(20), default="pending")  # pending / grading / done / error
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    student = relationship("Student", back_populates="homework_submissions")
+
+    @property
+    def wrong_questions(self):
+        return self.wrong_questions_json or []
+
+    @wrong_questions.setter
+    def wrong_questions(self, value):
+        self.wrong_questions_json = value
+
+
+class ExamAttempt(Base):
+    __tablename__ = "exam_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    exam_config_json = Column(JSON, nullable=False)  # 出题配置
+    questions_json = Column(JSON, nullable=False)     # 题目
+    student_answers = Column(JSON, default=list)      # 学生答案
+    score = Column(Float, default=0)
+    diagnostic_report = Column(JSON, default=dict)    # 诊断报告
+    learning_plan = Column(JSON, default=list)        # 学习计划
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    student = relationship("Student", back_populates="exam_attempts")
+
+
+class ProblemBank(Base):
+    __tablename__ = "problem_bank"
+
+    id = Column(Integer, primary_key=True, index=True)
+    knowledge_point = Column(String(100), nullable=False)
+    difficulty = Column(Integer, default=1)  # 1-5
+    subject_area = Column(String(50))         # 代数/几何/统计等
+    question_text = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    explanation = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class ErrorRecord(Base):
+    __tablename__ = "error_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    knowledge_point = Column(String(100), nullable=False)
+    question_text = Column(Text, default="")
+    student_answer = Column(Text, default="")
+    correct_answer = Column(Text, default="")
+    error_count = Column(Integer, default=1)
+    last_error_date = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    student = relationship("Student", back_populates="error_records")
+
+    __table_args__ = (
+        Index("idx_student_knowledge", "student_id", "knowledge_point"),
+    )
+
+
+class KnowledgePoint(Base):
+    __tablename__ = "knowledge_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    level = Column(String(10))  # 小学/初中/高中
+    description = Column(Text, default="")
+    related_points_json = Column(JSON, default=list)
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    activity_type = Column(String(50), nullable=False)  # homework / exam / login
+    detail = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
