@@ -1,0 +1,284 @@
+openapi: "3.0.0"
+info:
+  title: 数学教学智能体
+  description: 数学作业批改、智能出题、学习诊断、OCR识别、学生登录、数据归档、教师端汇总
+  version: "2.0.0"
+servers:
+  - url: https://math-teaching-agent-production.up.railway.app
+paths:
+  /plugin/student/login:
+    post:
+      summary: 学生登录/注册
+      operationId: studentLogin
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, student_id]
+              properties:
+                name:
+                  type: string
+                  description: 学生姓名
+                student_id:
+                  type: string
+                  description: 学号
+                school_level:
+                  type: string
+                  default: 初中
+      responses:
+        "200":
+          description: 登录结果
+  /plugin/homework/save:
+    post:
+      summary: 保存作业结果
+      operationId: saveHomework
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                photo_url:
+                  type: string
+                extracted_text:
+                  type: string
+                score:
+                  type: number
+                correct_count:
+                  type: integer
+                total_count:
+                  type: integer
+                comments:
+                  type: string
+                wrong_questions:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: 保存结果
+  /plugin/exam/save:
+    post:
+      summary: 保存考试结果
+      operationId: saveExam
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id]
+              properties:
+                student_id:
+                  type: integer
+                questions:
+                  type: array
+                answers:
+                  type: array
+                score:
+                  type: number
+                diagnostic_report:
+                  type: object
+                learning_plan:
+                  type: array
+      responses:
+        "200":
+          description: 保存结果
+  /plugin/teacher/error-summary:
+    get:
+      summary: 教师错题汇总
+      operationId: teacherErrorSummary
+      parameters:
+        - name: knowledge_point
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 错题汇总
+  /plugin/teacher/student-ranking:
+    get:
+      summary: 学生错题排行
+      operationId: teacherStudentRanking
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: 学生排行
+  /plugin/student/{student_id}/profile:
+    get:
+      summary: 学生学习画像
+      operationId: studentProfile
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 学生画像
+  /plugin/student/{student_id}/errors:
+    get:
+      summary: 学生错题详情
+      operationId: studentErrors
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 错题详情
+  /plugin/ocr:
+    post:
+      summary: OCR识别
+      operationId: ocrRecognize
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_url]
+              properties:
+                image_url:
+                  type: string
+      responses:
+        "200":
+          description: 识别结果
+  /plugin/grade:
+    post:
+      summary: 批改作业
+      operationId: gradeHomework
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_name, questions_and_answers]
+              properties:
+                student_name:
+                  type: string
+                school_level:
+                  type: string
+                  default: 初中
+                questions_and_answers:
+                  type: string
+      responses:
+        "200":
+          description: 批改结果
+  /plugin/generate-exam:
+    post:
+      summary: 智能出题
+      operationId: generateExam
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [school_level]
+              properties:
+                school_level:
+                  type: string
+                knowledge_points:
+                  type: string
+                difficulty:
+                  type: integer
+                  default: 3
+                question_count:
+                  type: integer
+                  default: 10
+      responses:
+        "200":
+          description: 生成的试卷
+  /plugin/diagnose:
+    post:
+      summary: 学习诊断
+      operationId: diagnoseStudent
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_name, performance_data]
+              properties:
+                student_name:
+                  type: string
+                school_level:
+                  type: string
+                  default: 初中
+                performance_data:
+                  type: string
+      responses:
+        "200":
+          description: 诊断报告
+  /plugin/learning-plan:
+    post:
+      summary: 学习计划
+      operationId: learningPlan
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_name, weak_points]
+              properties:
+                student_name:
+                  type: string
+                school_level:
+                  type: string
+                  default: 初中
+                weak_points:
+                  type: string
+      responses:
+        "200":
+          description: 学习计划
+  /plugin/knowledge-point:
+    get:
+      summary: 知识点查询
+      operationId: queryKnowledgePoint
+      parameters:
+        - name: text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: level
+          in: query
+          schema:
+            type: string
+            default: 初中
+      responses:
+        "200":
+          description: 知识点信息
+  /plugin/health:
+    get:
+      summary: 健康检查
+      operationId: checkHealth
+      responses:
+        "200":
+          description: 服务状态
