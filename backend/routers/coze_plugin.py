@@ -1,12 +1,12 @@
 """
 Coze 插件 API 路由
-供 Coze Bot 作为插件调用，暴露核心能力：
-OCR、批改作业、出题、诊断、学习计划
+同时支持 Form-data 和 JSON Body（Coze 发的是 JSON）
 """
+import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from fastapi import Depends
 
@@ -22,14 +22,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plugin", tags=["Coze 插件"])
 
 
+async def _get_json_body(request: Request) -> dict:
+    """获取请求体 JSON（兼容 Content-Type）"""
+    try:
+        return await request.json() or {}
+    except Exception:
+        return {}
+
+
+async def _get_param(request: Request, name: str, default=None):
+    """从 JSON body 或 form 中获取参数"""
+    json_body = await _get_json_body(request)
+    if name in json_body:
+        return json_body[name]
+    try:
+        form = await request.form()
+        if name in form:
+            return form[name]
+    except Exception:
+        pass
+    return default
+
+
 @router.post("/ocr")
-async def plugin_ocr(
-    image_url: str = Form(..., description="图片 URL 或本地路径"),
-):
-    """
-    [插件] OCR 识别：从图片中提取文字
-    适用于 Coze 插件调用，支持网络图片 URL
-    """
+async def plugin_ocr(request: Request):
+    """[插件] OCR 识别"""
+    image_url = await _get_param(request, "image_url")
+    if not image_url:
+        raise HTTPException(status_code=422, detail="image_url is required")
     try:
         text = ocr_service.extract_text(image_url)
         return {"success": True, "text": text, "text_length": len(text)}
@@ -39,21 +59,15 @@ async def plugin_ocr(
 
 
 @router.post("/grade")
-async def plugin_grade(
-    student_name: str = Form(..., description="学生姓名"),
-    school_level: str = Form("初中", description="学段：小学/初中/高中"),
-    questions_and_answers: str = Form(..., description="作业题目和答案内容"),
-):
-    """
-    [插件] AI 批改作业：传入作业内容，返回评分和批改详情
-    支持 JSON 或纯文本格式的作业内容
-    """
+async def plugin_grade(request: Request):
+    """[插件] AI 批改作业"""
+    student_name = await _get_param(request, "student_name")
+    school_level = await _get_param(request, "school_level", "初中")
+    questions_and_answers = await _get_param(request, "questions_and_answers")
+    if not student_name or not questions_and_answers:
+        raise HTTPException(status_code=422, detail="student_name and questions_and_answers are required")
     try:
-        result = await coze_service.grade_homework(
-            student_name=student_name,
-            school_level=school_level,
-            questions_and_answers=questions_and_answers,
-        )
+        result = await coze_service.grade_homework(student_name, school_level, questions_and_answers)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"批改失败: {e}")
@@ -61,22 +75,17 @@ async def plugin_grade(
 
 
 @router.post("/generate-exam")
-async def plugin_generate_exam(
-    school_level: str = Form(..., description="学段：小学/初中/高中"),
-    knowledge_points: str = Form("", description="薄弱知识点，逗号分隔"),
-    difficulty: int = Form(3, description="难度 1-5"),
-    question_count: int = Form(10, description="题目数量 1-50"),
-):
-    """
-    [插件] 智能出题：根据知识点和难度生成试卷
-    """
+async def plugin_generate_exam(request: Request):
+    """[插件] 智能出题"""
+    school_level = await _get_param(request, "school_level")
+    if not school_level:
+        raise HTTPException(status_code=422, detail="school_level is required")
+    knowledge_points = await _get_param(request, "knowledge_points", "")
+    difficulty = await _get_param(request, "difficulty", 3)
+    question_count = await _get_param(request, "question_count", 10)
+    points_list = [p.strip() for p in str(knowledge_points).split(",") if p.strip()]
+    config = {"knowledge_points": points_list, "difficulty": int(difficulty), "question_count": int(question_count)}
     try:
-        points_list = [p.strip() for p in knowledge_points.split(",") if p.strip()]
-        config = {
-            "knowledge_points": points_list,
-            "difficulty": difficulty,
-            "question_count": question_count,
-        }
         result = await coze_service.generate_exam(school_level, config)
         return {"success": True, "data": result}
     except Exception as e:
@@ -85,20 +94,15 @@ async def plugin_generate_exam(
 
 
 @router.post("/diagnose")
-async def plugin_diagnose(
-    student_name: str = Form(..., description="学生姓名"),
-    school_level: str = Form("初中", description="学段"),
-    performance_data: str = Form(..., description="近期考试或作业表现数据"),
-):
-    """
-    [插件] 学习诊断：根据学生近期表现生成诊断报告
-    """
+async def plugin_diagnose(request: Request):
+    """[插件] 学习诊断"""
+    student_name = await _get_param(request, "student_name")
+    school_level = await _get_param(request, "school_level", "初中")
+    performance_data = await _get_param(request, "performance_data")
+    if not student_name or not performance_data:
+        raise HTTPException(status_code=422, detail="student_name and performance_data are required")
     try:
-        result = await coze_service.generate_diagnostic_report(
-            student_name=student_name,
-            school_level=school_level,
-            performance_data=performance_data,
-        )
+        result = await coze_service.generate_diagnostic_report(student_name, school_level, performance_data)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"诊断失败: {e}")
@@ -106,21 +110,16 @@ async def plugin_diagnose(
 
 
 @router.post("/learning-plan")
-async def plugin_learning_plan(
-    student_name: str = Form(..., description="学生姓名"),
-    school_level: str = Form("初中", description="学段"),
-    weak_points: str = Form(..., description="薄弱知识点列表，逗号分隔"),
-):
-    """
-    [插件] 生成学习计划：根据薄弱知识点制定两周学习计划
-    """
+async def plugin_learning_plan(request: Request):
+    """[插件] 学习计划"""
+    student_name = await _get_param(request, "student_name")
+    school_level = await _get_param(request, "school_level", "初中")
+    weak_points = await _get_param(request, "weak_points")
+    if not student_name or not weak_points:
+        raise HTTPException(status_code=422, detail="student_name and weak_points are required")
+    points_list = [p.strip() for p in str(weak_points).split(",") if p.strip()]
     try:
-        points_list = [p.strip() for p in weak_points.split(",") if p.strip()]
-        result = await coze_service.generate_learning_plan(
-            student_name=student_name,
-            school_level=school_level,
-            weak_points=points_list,
-        )
+        result = await coze_service.generate_learning_plan(student_name, school_level, points_list)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"学习计划生成失败: {e}")
@@ -132,77 +131,10 @@ async def plugin_knowledge_point(
     text: str = Query(..., description="要查询的知识点关键词"),
     level: str = Query("初中", description="学段"),
 ):
-    """
-    [插件] 知识点映射：将文本归类到标准知识点
-    """
+    """[插件] 知识点映射"""
     standard = normalize_knowledge_point(text)
     info = get_knowledge_info(standard, level)
     return {"success": True, "original": text, "standard": standard, "info": info}
-
-
-@router.post("/student/create")
-async def plugin_create_student(
-    name: str = Form(..., description="学生姓名"),
-    student_id: str = Form(..., description="学号"),
-    school_level: str = Form("初中", description="学段"),
-    db: Session = Depends(get_db),
-):
-    """
-    [插件] 创建学生账号
-    """
-    existing = db.query(Student).filter(Student.student_id == student_id).first()
-    if existing:
-        return {"success": True, "data": {"id": existing.id, "name": existing.name, "already_exists": True}}
-
-    student = Student(name=name, student_id=student_id, school_level=school_level)
-    db.add(student)
-    db.commit()
-    db.refresh(student)
-    return {"success": True, "data": {"id": student.id, "name": student.name, "already_exists": False}}
-
-
-@router.get("/student/{student_id}/profile")
-async def plugin_student_profile(
-    student_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    [插件] 获取学生学习画像
-    """
-    from sqlalchemy import func
-
-    student = db.query(Student).get(student_id)
-    if not student:
-        raise HTTPException(status_code=404, detail="学生不存在")
-
-    homework_count = db.query(func.count(HomeworkSubmission.id)).filter(
-        HomeworkSubmission.student_id == student_id
-    ).scalar() or 0
-
-    exam_count = db.query(func.count(ExamAttempt.id)).filter(
-        ExamAttempt.student_id == student_id
-    ).scalar() or 0
-
-    avg_hw = db.query(func.avg(HomeworkSubmission.score)).filter(
-        HomeworkSubmission.student_id == student_id
-    ).scalar() or 0
-
-    avg_exam = db.query(func.avg(ExamAttempt.score)).filter(
-        ExamAttempt.student_id == student_id
-    ).scalar() or 0
-
-    avg_score = float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0)
-
-    return {
-        "success": True,
-        "data": {
-            "name": student.name,
-            "level": student.school_level,
-            "homework_count": homework_count,
-            "exam_count": exam_count,
-            "avg_score": round(avg_score, 1),
-        }
-    }
 
 
 @router.get("/health")
