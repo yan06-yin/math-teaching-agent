@@ -21,7 +21,9 @@ class CozeService:
         self.token = settings.COZE_TOKEN
 
     async def _request(self, prompt: str, user: str = "student") -> dict:
-        """向 Coze 发送请求（v3 API）"""
+        """向 Coze 发送请求（v3 API，需要轮询结果）"""
+        import asyncio
+
         if not self.bot_id or not self.token:
             raise ValueError(
                 "请先配置 COZE_BOT_ID 和 COZE_TOKEN 环境变量"
@@ -46,21 +48,44 @@ class CozeService:
         }
 
         async with httpx.AsyncClient(timeout=120) as client:
+            # Step 1: Create chat
             resp = await client.post(self.api_url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
 
-        # Coze v3 返回格式：data 直接包含 replies
-        if data.get("code") != 0:
-            raise ValueError(f"Unexpected Coze response: {data}")
+            if data.get("code") != 0:
+                raise ValueError(f"Coze API error: {data}")
 
-        if "data" in data and "replies" in data["data"]:
-            reply = data["data"]["replies"][0]["content"]
-            return self._parse_response(reply)
-        elif "data" in data and data["data"].get("status") == "in_progress":
-            # 非流式请求需要等待或直接获取内容
-            return {"raw": data["data"].get("status", "processing")}
-        raise ValueError(f"Unexpected Coze response: {data}")
+            chat_id = data["data"]["id"]
+            conversation_id = data["data"]["conversation_id"]
+
+            # Step 2: Poll for completion
+            retry_count = 0
+            max_retries = 30
+            while retry_count < max_retries:
+                await asyncio.sleep(2)
+                status_resp = await client.get(
+                    f"https://api.coze.cn/v3/chat/retrieve",
+                    headers=headers,
+                    params={"chat_id": chat_id, "conversation_id": conversation_id},
+                )
+                status_data = status_resp.json()
+                if status_data.get("data", {}).get("status") == "completed":
+                    # Step 3: Get messages
+                    msg_resp = await client.post(
+                        f"https://api.coze.cn/v3/chat/message/list",
+                        headers=headers,
+                        json={"chat_id": chat_id, "conversation_id": conversation_id},
+                    )
+                    msg_data = msg_resp.json()
+                    messages = msg_data.get("data", [])
+                    for msg in messages:
+                        if msg.get("role") == "assistant" and msg.get("content"):
+                            return self._parse_response(msg["content"])
+                    raise ValueError(f"No assistant reply in messages: {msg_data}")
+                retry_count += 1
+
+            raise ValueError(f"Coze chat timeout after {max_retries * 2}s: {data}")
 
     @staticmethod
     def _parse_response(text: str) -> dict:
