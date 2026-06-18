@@ -72,10 +72,10 @@ class CozeService:
                 status_data = status_resp.json()
                 if status_data.get("data", {}).get("status") == "completed":
                     # Step 3: Get messages
-                    msg_resp = await client.post(
+                    msg_resp = await client.get(
                         f"https://api.coze.cn/v3/chat/message/list",
                         headers=headers,
-                        json={"chat_id": chat_id, "conversation_id": conversation_id},
+                        params={"chat_id": chat_id, "conversation_id": conversation_id},
                     )
                     msg_data = msg_resp.json()
                     messages = msg_data.get("data", [])
