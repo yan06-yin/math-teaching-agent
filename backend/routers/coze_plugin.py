@@ -23,15 +23,23 @@ router = APIRouter(prefix="/plugin", tags=["Coze 插件"])
 
 
 async def _parse_body(request: Request) -> dict:
-    """解析请求体 - 用 request.json() 直接获取"""
+    """从请求中提取参数（兼容 JSON 和 Form）"""
+    raw = await request.body()
+    if not raw:
+        return {}
+    ct = request.headers.get("content-type", "")
+    # JSON
+    if "json" in ct:
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    # Form-urlencoded
     try:
-        data = await request.json()
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
-    try:
-        form = await request.form()
-        return dict(form)
+        from urllib.parse import parse_qs
+        parsed = parse_qs(raw.decode("utf-8"))
+        return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
     except Exception:
         return {}
 
