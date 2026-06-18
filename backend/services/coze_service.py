@@ -61,9 +61,9 @@ class CozeService:
 
             # Step 2: Poll for completion
             retry_count = 0
-            max_retries = 30
+            max_retries = 60
             while retry_count < max_retries:
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 status_resp = await client.get(
                     f"https://api.coze.cn/v3/chat/retrieve",
                     headers=headers,
