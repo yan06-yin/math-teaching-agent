@@ -10,17 +10,30 @@ from datetime import datetime
 class StudentRegister(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     student_id: str = Field(..., min_length=1, max_length=30)
+    password: str = Field(..., min_length=6, max_length=128)
     school_level: str = Field(..., pattern="^(小学|初中|高中)$")
 
 
 class StudentLogin(BaseModel):
     student_id: str
     name: str
+    password: str
+
+
+class StudentSetPassword(BaseModel):
+    password: str = Field(..., min_length=6, max_length=128)
 
 
 class TeacherLogin(BaseModel):
     username: str
     password: str
+
+
+class TeacherRegister(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=6, max_length=128)
+    school: str = Field(default="")
 
 
 class TokenResponse(BaseModel):

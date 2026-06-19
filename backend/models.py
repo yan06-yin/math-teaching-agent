@@ -16,7 +16,10 @@ class Student(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False)
     student_id = Column(String(30), unique=True, nullable=False, index=True)
+    password_hash = Column(String(128), nullable=False, default="")
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
+    role = Column(String(20), default="student", nullable=False)
+    last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     homework_submissions = relationship("HomeworkSubmission", back_populates="student")

@@ -8,6 +8,7 @@ from sqlalchemy import func
 from database import get_db
 from models import Student, HomeworkSubmission, ExamAttempt, ErrorRecord
 from schemas import StudentProfile
+from utils.auth import require_student
 
 router = APIRouter()
 
@@ -15,9 +16,14 @@ router = APIRouter()
 @router.get("/student/{student_id}")
 async def get_student_profile(
     student_id: int,
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """获取学生个人学习画像"""
+    """获取学生个人学习画像（只能查看自己的）"""
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
     student = db.query(Student).get(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
@@ -83,9 +89,14 @@ async def get_student_profile(
 @router.get("/class/{student_id}/trends")
 async def get_score_trends(
     student_id: int,
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """获取学生成绩趋势（用于前端折线图）"""
+    """获取学生成绩趋势（用于前端折线图，只能查看自己的）"""
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
     homeworks = (
         db.query(HomeworkSubmission.score, HomeworkSubmission.created_at)
         .filter(HomeworkSubmission.student_id == student_id)

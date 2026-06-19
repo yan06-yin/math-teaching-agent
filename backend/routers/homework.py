@@ -9,6 +9,7 @@ from models import Student, HomeworkSubmission
 from schemas import HomeworkResult
 from services.grading_service import process_homework
 from config import settings
+from utils.auth import require_student
 import os
 import uuid
 
@@ -19,10 +20,14 @@ router = APIRouter()
 async def upload_homework(
     file: UploadFile = File(...),
     student_answers: str = "",
-    student_id: int = Depends(lambda: 1),  # TODO: JWT 鉴权
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """上传作业照片，触发自动批改"""
+    student_id = current_user[0].id
+
+    submission = db.query(HomeworkSubmission).get(student_id)  # noqa: F841
+    # 验证学生存在
     student = db.query(Student).get(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
@@ -53,12 +58,14 @@ async def upload_homework(
 
 @router.get("/my")
 async def my_homework(
-    student_id: int = Depends(lambda: 1),
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
     limit: int = 20,
     offset: int = 0,
 ):
     """获取我的作业列表"""
+    student_id = current_user[0].id
+
     submissions = (
         db.query(HomeworkSubmission)
         .filter(HomeworkSubmission.student_id == student_id)
@@ -85,10 +92,12 @@ async def my_homework(
 @router.get("/{submission_id}/result")
 async def homework_result(
     submission_id: int,
-    student_id: int = Depends(lambda: 1),
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """获取批改详情"""
+    student_id = current_user[0].id
+
     submission = (
         db.query(HomeworkSubmission)
         .filter(

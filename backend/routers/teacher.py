@@ -1,12 +1,13 @@
 """
-教师端路由 — 错题汇总、班级分析
+教师端路由 — 错题汇总、班级分析、知识点钻取
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
 from models import Student, ErrorRecord, HomeworkSubmission, ExamAttempt
+from utils.auth import require_teacher
 from utils.knowledge_mapper import normalize_knowledge_point
 
 router = APIRouter()
@@ -14,15 +15,15 @@ router = APIRouter()
 
 @router.get("/errors")
 async def get_error_summary(
-    teacher_id: int = Depends(lambda: 1),  # TODO: JWT
+    current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
     knowledge_point: str = None,
 ):
-    """获取全班错题汇总（按知识点分组）"""
+    """获取全班错题汇总（按知识点分组），包含最近错题详情"""
     query = (
         db.query(
             ErrorRecord.knowledge_point,
-            func.count(ErrorRecord.id).label("affected_students"),
+            func.count(func.distinct(ErrorRecord.student_id)).label("affected_students"),
             func.sum(ErrorRecord.error_count).label("total_errors"),
         )
         .group_by(ErrorRecord.knowledge_point)
@@ -35,21 +36,78 @@ async def get_error_summary(
 
     total_students = db.query(func.count(Student.id)).scalar() or 1
 
-    return [
-        {
+    output = []
+    for r in results:
+        # 获取该知识点的最近 5 条错题
+        recent = (
+            db.query(ErrorRecord)
+            .filter(ErrorRecord.knowledge_point == r.knowledge_point)
+            .order_by(ErrorRecord.last_error_date.desc())
+            .limit(5)
+            .all()
+        )
+        recent_errors = []
+        for er in recent:
+            student = db.query(Student).get(er.student_id)
+            recent_errors.append({
+                "student_name": student.name if student else "未知",
+                "student_id": er.student_id,
+                "question": er.question_text,
+                "error_count": er.error_count,
+                "last_error_date": er.last_error_date.isoformat() if er.last_error_date else None,
+            })
+
+        output.append({
             "knowledge_point": r.knowledge_point,
             "error_count": r.total_errors,
             "affected_students": r.affected_students,
             "error_rate": round(r.affected_students / total_students * 100, 1),
-            "recent_errors": [],  # 可扩展
-        }
-        for r in results
-    ]
+            "recent_errors": recent_errors,
+        })
+
+    return output
+
+
+@router.get("/errors/knowledge-point/{knowledge_point}")
+async def get_knowledge_point_errors(
+    knowledge_point: str,
+    current_user=Depends(require_teacher),
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """钻取：获取特定知识点的全部错题详情"""
+    errors = (
+        db.query(ErrorRecord)
+        .filter(ErrorRecord.knowledge_point == knowledge_point)
+        .order_by(ErrorRecord.last_error_date.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for er in errors:
+        student = db.query(Student).get(er.student_id)
+        result.append({
+            "student_id": er.student_id,
+            "student_name": student.name if student else "未知",
+            "student_level": student.school_level if student else "未知",
+            "question": er.question_text,
+            "student_answer": er.student_answer,
+            "correct_answer": er.correct_answer,
+            "error_count": er.error_count,
+            "last_error_date": er.last_error_date.isoformat() if er.last_error_date else None,
+        })
+
+    return {
+        "knowledge_point": knowledge_point,
+        "total_errors": len(result),
+        "errors": result,
+    }
 
 
 @router.get("/dashboard")
 async def get_teacher_dashboard(
-    teacher_id: int = Depends(lambda: 1),
+    current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
     """教师仪表盘总览"""
@@ -67,7 +125,7 @@ async def get_teacher_dashboard(
         db.query(
             ErrorRecord.knowledge_point,
             func.sum(ErrorRecord.error_count).label("total"),
-            func.count(ErrorRecord.id).label("students"),
+            func.count(func.distinct(ErrorRecord.student_id)).label("students"),
         )
         .group_by(ErrorRecord.knowledge_point)
         .order_by(func.sum(ErrorRecord.error_count).desc())
@@ -121,7 +179,7 @@ async def get_teacher_dashboard(
 @router.get("/student/{student_id}/errors")
 async def get_student_errors(
     student_id: int,
-    teacher_id: int = Depends(lambda: 1),
+    current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
     """查看单个学生的错题详情"""

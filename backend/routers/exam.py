@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Student, ExamAttempt
-from schemas import ExamGenerateConfig, ExamSubmit, ExamResult
+from schemas import ExamGenerateConfig, ExamSubmit
 from services.exam_service import generate_and_save_exam, grade_exam
+from utils.auth import require_student
 
 router = APIRouter()
 
@@ -15,10 +16,11 @@ router = APIRouter()
 @router.post("/generate")
 async def generate_exam(
     config: ExamGenerateConfig,
-    student_id: int = Depends(lambda: 1),  # TODO: JWT
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """根据学生情况生成试卷"""
+    student_id = current_user[0].id
     student = db.query(Student).get(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
@@ -31,6 +33,8 @@ async def generate_exam(
     try:
         exam = await generate_and_save_exam(db, student_id, exam_config)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"出题失败: {str(e)}")
 
     return {
@@ -43,10 +47,12 @@ async def generate_exam(
 async def submit_exam(
     exam_id: int,
     body: ExamSubmit,
-    student_id: int = Depends(lambda: 1),
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """提交答卷"""
+    student_id = current_user[0].id
+
     exam = db.query(ExamAttempt).get(exam_id)
     if not exam or exam.student_id != student_id:
         raise HTTPException(status_code=404, detail="考试不存在")
@@ -54,6 +60,7 @@ async def submit_exam(
     try:
         graded = await grade_exam(db, exam_id, body.answers)
     except Exception as e:
+        import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"批改失败: {str(e)}")
 
     return {
@@ -69,10 +76,12 @@ async def submit_exam(
 @router.get("/{exam_id}/report")
 async def get_exam_report(
     exam_id: int,
-    student_id: int = Depends(lambda: 1),
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """获取考试报告和诊断"""
+    student_id = current_user[0].id
+
     exam = db.query(ExamAttempt).filter(
         ExamAttempt.id == exam_id,
         ExamAttempt.student_id == student_id,
@@ -94,11 +103,13 @@ async def get_exam_report(
 
 @router.get("/my")
 async def my_exams(
-    student_id: int = Depends(lambda: 1),
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
     limit: int = 20,
 ):
     """获取我的考试记录"""
+    student_id = current_user[0].id
+
     exams = (
         db.query(ExamAttempt)
         .filter(ExamAttempt.student_id == student_id)

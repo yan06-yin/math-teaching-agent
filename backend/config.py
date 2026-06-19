@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
 
-    # Coze API
-    COZE_API_URL: str = "https://api.coze.cn/v3/chat"
-    COZE_BOT_ID: str = os.getenv("COZE_BOT_ID", "")
-    COZE_TOKEN: str = os.getenv("COZE_TOKEN", "")
+    # Agnes AI API（替代 Coze）
+    AGNES_API_KEY: str = os.getenv("AGNES_API_KEY", "")
+    AGNES_BASE_URL: str = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+    AGNES_MODEL: str = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
 
     # 文件上传
     UPLOAD_DIR: str = os.path.join(PROJECT_DIR, "uploads")

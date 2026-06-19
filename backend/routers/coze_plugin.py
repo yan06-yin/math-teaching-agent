@@ -14,7 +14,7 @@ from sqlalchemy import func
 from database import get_db
 from models import Student, HomeworkSubmission, ExamAttempt, ErrorRecord, ActivityLog
 from services.ocr_service import ocr_service
-from services.coze_service import coze_service
+from services.agnes_service import agences_service
 from services.exam_service import generate_and_save_exam, grade_exam
 from utils.knowledge_mapper import normalize_knowledge_point, get_knowledge_info
 
@@ -328,7 +328,7 @@ async def plugin_grade(request: Request):
     if not student_name or not questions_and_answers:
         raise HTTPException(status_code=422, detail="student_name and questions_and_answers are required")
     try:
-        result = await coze_service.grade_homework(student_name, school_level, questions_and_answers)
+        result = await agences_service.grade_homework(student_name, school_level, questions_and_answers)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"批改失败: {e}")
@@ -348,7 +348,7 @@ async def plugin_generate_exam(request: Request):
     points_list = [p.strip() for p in str(knowledge_points).split(",") if p.strip()]
     config = {"knowledge_points": points_list, "difficulty": difficulty, "question_count": question_count}
     try:
-        result = await coze_service.generate_exam(school_level, config)
+        result = await agences_service.generate_exam(school_level, config)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"出题失败: {e}")
@@ -365,7 +365,7 @@ async def plugin_diagnose(request: Request):
     if not student_name or not performance_data:
         raise HTTPException(status_code=422, detail="student_name and performance_data are required")
     try:
-        result = await coze_service.generate_diagnostic_report(student_name, school_level, performance_data)
+        result = await agences_service.generate_diagnostic_report(student_name, school_level, performance_data)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"诊断失败: {e}")
@@ -383,7 +383,7 @@ async def plugin_learning_plan(request: Request):
         raise HTTPException(status_code=422, detail="student_name and weak_points are required")
     points_list = [p.strip() for p in str(weak_points).split(",") if p.strip()]
     try:
-        result = await coze_service.generate_learning_plan(student_name, school_level, points_list)
+        result = await agences_service.generate_learning_plan(student_name, school_level, points_list)
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"学习计划生成失败: {e}")

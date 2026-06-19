@@ -1,5 +1,5 @@
 """
-批改服务 — 编排 OCR + Coze 批改的完整流程
+批改服务 — 编排 OCR + Agnes AI 批改的完整流程
 """
 import logging
 import os
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import HomeworkSubmission, ErrorRecord
-from services.coze_service import coze_service
+from services.agnes_service import agences_service
 from services.ocr_service import ocr_service
 from utils.knowledge_mapper import normalize_knowledge_point
 
@@ -26,7 +26,7 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     完整作业批改流程：
     1. 保存照片
     2. OCR 提取文字
-    3. 调用 Coze 批改
+    3. 调用 Agnes AI 批改
     4. 存入数据库
     5. 更新错题记录
     """
@@ -39,7 +39,7 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     # 如果是 URL，下载；如果是本地路径，复制
     if photo_path.startswith(("http://", "https://")):
         import httpx
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(photo_path)
             resp.raise_for_status()
             dest_path.write_bytes(resp.content)
@@ -62,17 +62,13 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
         photo_url=photo_url,
         extracted_text=extracted_text,
         student_answers=student_answers,
-        status="pending",
     )
     db.add(submission)
     db.commit()
     db.refresh(submission)
 
-    # Step 4: 调用 Coze 批改
+    # Step 4: 调用 Agnes AI 批改
     try:
-        submission.status = "grading"
-        db.commit()
-
         # 组装作业内容
         content = extracted_text or student_answers
         if not content:
@@ -84,7 +80,7 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
         school_level = student.school_level if student else "初中"
         student_name = student.name if student else f"学生{student_id}"
 
-        result = await coze_service.grade_homework(
+        result = await agences_service.grade_homework(
             student_name=student_name,
             school_level=school_level,
             questions_and_answers=content,
@@ -96,7 +92,6 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
         submission.total_count = int(result.get("total_count", 0))
         submission.comments = result.get("comments", "")
         submission.wrong_questions = result.get("details", [])
-        submission.status = "done"
         db.commit()
 
         # Step 6: 更新错题记录
@@ -121,8 +116,7 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
                 db.commit()
 
     except Exception as e:
-        logger.error(f"Coze 批改失败: {e}")
-        submission.status = "error"
+        logger.error(f"Agnes AI 批改失败: {e}")
         submission.comments = f"批改失败: {str(e)}"
         db.commit()
 
