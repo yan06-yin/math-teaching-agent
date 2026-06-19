@@ -9,6 +9,7 @@ paths:
   /plugin/student/login:
     post:
       summary: 学生登录/注册
+      description: 传入姓名和学号，自动登录或注册
       operationId: studentLogin
       parameters: []
       requestBody:
@@ -34,6 +35,7 @@ paths:
   /plugin/homework/save:
     post:
       summary: 保存作业结果
+      description: 将批改后的作业结果存入数据库
       operationId: saveHomework
       parameters: []
       requestBody:
@@ -60,14 +62,13 @@ paths:
                   type: string
                 wrong_questions:
                   type: array
-                  items:
-                    type: object
       responses:
         "200":
           description: 保存结果
   /plugin/exam/save:
     post:
       summary: 保存考试结果
+      description: 将考试结果、诊断报告、学习方案存入数据库
       operationId: saveExam
       parameters: []
       requestBody:
@@ -80,6 +81,8 @@ paths:
               properties:
                 student_id:
                   type: integer
+                config:
+                  type: object
                 questions:
                   type: array
                 answers:
@@ -95,7 +98,8 @@ paths:
           description: 保存结果
   /plugin/teacher/error-summary:
     get:
-      summary: 教师错题汇总
+      summary: 教师端错题汇总
+      description: 按知识点统计全班错误率
       operationId: teacherErrorSummary
       parameters:
         - name: knowledge_point
@@ -107,7 +111,8 @@ paths:
           description: 错题汇总
   /plugin/teacher/student-ranking:
     get:
-      summary: 学生错题排行
+      summary: 教师端学生排行
+      description: 按错题数排名
       operationId: teacherStudentRanking
       parameters:
         - name: limit
@@ -121,6 +126,7 @@ paths:
   /plugin/student/{student_id}/profile:
     get:
       summary: 学生学习画像
+      description: 查看学生的全部学习记录
       operationId: studentProfile
       parameters:
         - name: student_id
@@ -134,6 +140,7 @@ paths:
   /plugin/student/{student_id}/errors:
     get:
       summary: 学生错题详情
+      description: 查看学生错题列表
       operationId: studentErrors
       parameters:
         - name: student_id

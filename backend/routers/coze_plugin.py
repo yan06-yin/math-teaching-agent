@@ -31,8 +31,7 @@ async def _parse_body(request: Request) -> dict:
     # JSON
     if "json" in ct:
         try:
-            data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
+            return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
     # Form-urlencoded
