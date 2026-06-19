@@ -42,21 +42,22 @@ app.add_middleware(
 # 静态文件（上传的图片）
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")
 
-# 前端页面（如果存在则挂载为静态文件 + SPA 回退）
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+# 前端页面（静态文件）
+FRONTEND_DIR = Path(__file__).parent / "frontend"
 if FRONTEND_DIR.exists():
+    from fastapi.responses import FileResponse
     frontend_html = FRONTEND_DIR / "index.html"
     if frontend_html.exists():
-        @app.get("/", include_in_schema=False)
-        async def serve_frontend():
-            return HTMLResponse(frontend_html.read_text(encoding="utf-8"))
-        app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / ".next" / "static"), check_dir=False), name="next_static")
+        app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / "_next"), check_dir=False), name="next")
         @app.get("/{full_path:path}", include_in_schema=False)
-        async def catch_all(full_path: str):
+        async def serve_frontend(full_path: str):
             fp = FRONTEND_DIR / full_path
-            if fp.exists() and fp.is_file():
-                return HTMLResponse(fp.read_text(encoding="utf-8"))
-            return HTMLResponse(frontend_html.read_text(encoding="utf-8"))
+            if fp.exists() and fp.is_file() and fp.suffix in ('.html','.js','.css','.png','.jpg','.ico','.svg','.json','.txt','.woff','.woff2'):
+                return FileResponse(fp)
+            idx = FRONTEND_DIR / "index.html"
+            if idx.exists():
+                return HTMLResponse(idx.read_text(encoding="utf-8"))
+            return {"msg": f"frontend not built: {full_path}"}
 
 # 路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
