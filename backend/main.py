@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from pathlib import Path
 
 from config import settings
 from database import init_db
@@ -39,6 +41,18 @@ app.add_middleware(
 
 # 静态文件（上传的图片）
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")
+
+# 前端页面
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+if FRONTEND_DIR.exists():
+    from fastapi.responses import HTMLResponse
+    @app.get("/")
+    async def serve_frontend():
+        index_html = FRONTEND_DIR / "index.html"
+        if index_html.exists():
+            return HTMLResponse(index_html.read_text(encoding="utf-8"))
+        return {"msg": "frontend index.html not found"}
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="frontend")
 
 # 路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
