@@ -1,15 +1,14 @@
-# ===== 单阶段：Python 后端，直接运行 =====
 FROM python:3.11-slim
-WORKDIR /app
 
-# 安装后端依赖
+# 先安装依赖（利用 Docker 缓存）
+WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制所有代码
-COPY . .
+# 复制后端代码
+COPY backend/ ./backend/
 
-# 切换到 backend 目录
+# 切换到 backend 目录，让 from config import settings 能找到
 WORKDIR /app/backend
 
 EXPOSE 8000

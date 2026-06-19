@@ -42,21 +42,17 @@ app.add_middleware(
 # 静态文件（上传的图片）
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")
 
-# 前端页面（如果存在则挂载为静态文件 + SPA 回退）
+# 前端页面
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 if FRONTEND_DIR.exists():
-    frontend_html = FRONTEND_DIR / "index.html"
-    if frontend_html.exists():
-        @app.get("/", include_in_schema=False)
-        async def serve_frontend():
-            return HTMLResponse(frontend_html.read_text(encoding="utf-8"))
-        app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / ".next" / "static"), check_dir=False), name="next_static")
-        @app.get("/{full_path:path}", include_in_schema=False)
-        async def catch_all(full_path: str):
-            fp = FRONTEND_DIR / full_path
-            if fp.exists() and fp.is_file():
-                return HTMLResponse(fp.read_text(encoding="utf-8"))
-            return HTMLResponse(frontend_html.read_text(encoding="utf-8"))
+    from fastapi.responses import HTMLResponse
+    @app.get("/")
+    async def serve_frontend():
+        index_html = FRONTEND_DIR / "index.html"
+        if index_html.exists():
+            return HTMLResponse(index_html.read_text(encoding="utf-8"))
+        return {"msg": "frontend index.html not found"}
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="frontend")
 
 # 路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
