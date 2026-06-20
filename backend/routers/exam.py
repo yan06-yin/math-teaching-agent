@@ -2,10 +2,10 @@
 考试路由 — 生成试卷、提交答卷、查看报告
 """
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from database import get_db, SessionLocal
+from database import get_db
 from models import Student, ExamAttempt
 from schemas import ExamGenerateConfig, ExamSubmit
 from services.exam_service import generate_and_save_exam, grade_exam
@@ -48,28 +48,23 @@ async def generate_exam(
 async def submit_exam(
     exam_id: int,
     body: ExamSubmit,
-    background_tasks: BackgroundTasks,
     current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """提交答卷 — 后台异步批改，立即返回"""
+    """提交答卷 — 保存答案，返回状态"""
     student_id = current_user[0].id
 
     exam = db.query(ExamAttempt).get(exam_id)
     if not exam or exam.student_id != student_id:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    # 保存答案
     exam.student_answers = body.answers
     db.commit()
-
-    # 后台异步批改
-    background_tasks.add_task(_grade_exam_async, exam_id, body.answers)
 
     return {
         "id": exam.id,
         "status": "grading",
-        "message": "正在批改中，请稍后查看结果",
+        "message": "答案已保存",
     }
 
 
@@ -79,7 +74,7 @@ async def get_exam_status(
     current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """查看考试批改状态"""
+    """查看/触发考试批改"""
     student_id = current_user[0].id
 
     exam = db.query(ExamAttempt).filter(
@@ -90,29 +85,45 @@ async def get_exam_status(
     if not exam:
         raise HTTPException(status_code=404, detail="考试记录不存在")
 
-    has_result = exam.score is not None and exam.score > 0
-    return {
-        "id": exam.id,
-        "status": "done" if has_result else "grading",
-        "score": exam.score if has_result else None,
-        "questions": exam.questions_json,
-        "student_answers": exam.student_answers,
-        "diagnostic_report": exam.diagnostic_report if has_result else {},
-        "learning_plan": exam.learning_plan if has_result else [],
-        "created_at": exam.created_at.isoformat() if exam.created_at else None,
-    }
+    # 已有结果
+    if exam.score is not None and exam.score > 0:
+        return {
+            "id": exam.id,
+            "status": "done",
+            "score": exam.score,
+            "questions": exam.questions_json,
+            "student_answers": exam.student_answers,
+            "diagnostic_report": exam.diagnostic_report or {},
+            "learning_plan": exam.learning_plan or [],
+            "created_at": exam.created_at.isoformat() if exam.created_at else None,
+        }
 
-
-async def _grade_exam_async(exam_id: int, answers: list[dict]):
-    """后台异步批改任务"""
-    db = SessionLocal()
+    # 还没批改，触发批改
     try:
-        await grade_exam(db, exam_id, answers)
+        graded = await grade_exam(db, exam_id, exam.student_answers or [])
+        return {
+            "id": graded.id,
+            "status": "done",
+            "score": graded.score,
+            "questions": graded.questions_json,
+            "student_answers": graded.student_answers,
+            "diagnostic_report": graded.diagnostic_report or {},
+            "learning_plan": graded.learning_plan or [],
+            "created_at": graded.created_at.isoformat() if graded.created_at else None,
+        }
     except Exception as e:
-        import logging
-        logging.error(f"后台批改失败: {e}")
-    finally:
-        db.close()
+        import traceback
+        traceback.print_exc()
+        return {
+            "id": exam.id,
+            "status": "grading",
+            "score": None,
+            "questions": exam.questions_json,
+            "student_answers": exam.student_answers,
+            "diagnostic_report": {},
+            "learning_plan": [],
+            "created_at": exam.created_at.isoformat() if exam.created_at else None,
+        }
 
 
 @router.get("/{exam_id}/report")
