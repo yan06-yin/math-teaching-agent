@@ -34,7 +34,7 @@ export default function ExamPage() {
       // 提交答卷（立即返回）
       await axios.post(`/api/exam/${examId}/submit`, {
         answers: answers.map((a, i) => ({ question_index: i, answer: a })),
-      }, { headers, timeout: 10000 });
+      }, { headers, timeout: 30000 });
 
       // 轮询等待批改完成
       let attempts = 0;
@@ -78,6 +78,7 @@ export default function ExamPage() {
                   <span className="w-8 h-8 bg-[#eef2ff] text-[#6366f1] rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0">{i+1}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-1">{q.question}</p>
+                    {q.image_url && <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
                   </div>
@@ -96,6 +97,7 @@ export default function ExamPage() {
                   <span className="text-xl">{(result.student_answers?.[i]?.answer || "").trim() ? "✅" : "❌"}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-2">{q.question}</p>
+                    {q.image_url && <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>
                       <div><span className="text-gray-500">正确答案：</span><span className="text-green-600">{q.answer}</span></div>

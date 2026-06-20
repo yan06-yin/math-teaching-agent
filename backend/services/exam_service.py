@@ -43,10 +43,27 @@ async def generate_and_save_exam(db: Session, student_id: int,
             config=exam_config,
         )
 
+        questions = result.get("questions", [])
+
+        # 为需要配图的题目生成图片（如图形、抛物线、几何题）
+        import re
+        img_keywords = ["如图", "图形", "图像", "图象", "抛物线", "二次函数", "几何", "三角形", "四边形",
+                        "圆", "菱形", "正方形", "矩形", "平行", "坐标", "坐标系", "函数图像"]
+        for q in questions:
+            q_text = q.get("question", "")
+            if any(kw in q_text for kw in img_keywords):
+                try:
+                    img_prompt = f"数学教学示意图：{q_text[:100]}。简洁清晰的数学示意图，白底黑线，专业风格。"
+                    img_result = await agences_service.generate_image(prompt=img_prompt)
+                    if img_result and img_result.get("data"):
+                        q["image_url"] = img_result["data"][0].get("url", "")
+                except Exception:
+                    pass  # 图片生成失败不影响出题
+
         exam = ExamAttempt(
             student_id=student_id,
             exam_config_json=exam_config,
-            questions_json=result.get("questions", []),
+            questions_json=questions,
             student_answers=[],
         )
         db.add(exam)
