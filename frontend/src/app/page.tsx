@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const api = (url: string) => `${API_BASE}/api${url}`;
+  const api = (url: string) => `/api${url}`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
