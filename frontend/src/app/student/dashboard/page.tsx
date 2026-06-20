@@ -44,6 +44,7 @@ export default function StudentDashboard() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-8"><h2 className="text-2xl font-bold text-gray-900">你好，{un} 👋</h2><p className="text-gray-500 mt-1">今天也要加油学习哦！</p></div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <Link href="/student/assignments" className="card hover:shadow-md block"><div className="text-3xl mb-2">📋</div><div className="font-medium">教师作业</div><div className="text-sm text-gray-500">查看和提交作业</div></Link>
           <Link href="/student/upload" className="card hover:shadow-md block"><div className="text-3xl mb-2">📸</div><div className="font-medium">拍照批改</div><div className="text-sm text-gray-500">上传作业自动批改</div></Link>
           <Link href="/student/exam" className="card hover:shadow-md block"><div className="text-3xl mb-2">📝</div><div className="font-medium">智能考试</div><div className="text-sm text-gray-500">针对性出题组卷</div></Link>
           <Link href="/student/report" className="card hover:shadow-md block"><div className="text-3xl mb-2">📊</div><div className="font-medium">诊断报告</div><div className="text-sm text-gray-500">学习情况分析</div></Link>

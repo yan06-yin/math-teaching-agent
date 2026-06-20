@@ -11,7 +11,7 @@ from pathlib import Path
 
 from config import settings
 from database import init_db
-from routers import auth, homework, exam, analysis, teacher, coze_plugin
+from routers import auth, homework, exam, analysis, teacher, coze_plugin, assignments
 
 
 @asynccontextmanager
@@ -48,7 +48,7 @@ app.include_router(homework.router, prefix="/api/homework", tags=["作业"])
 app.include_router(exam.router, prefix="/api/exam", tags=["考试"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["分析"])
 app.include_router(teacher.router, prefix="/api/teacher", tags=["教师端"])
-app.include_router(coze_plugin.router, tags=["Coze 插件"])
+app.include_router(assignments.router, prefix="/api", tags=["作业发布"])
 
 
 @app.get("/api/health")

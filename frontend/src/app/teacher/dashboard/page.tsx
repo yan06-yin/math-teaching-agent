@@ -37,7 +37,10 @@ export default function TeacherDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b px-6 py-4"><div className="max-w-7xl mx-auto flex items-center justify-between"><span className="text-xl">👨‍🏫</span><span className="font-bold text-lg">教师端</span><Link href="/" className="text-sm text-[#6366f1] hover:underline">退出</Link></div></nav>
+      <nav className="bg-white border-b px-6 py-4"><div className="max-w-7xl mx-auto flex items-center justify-between"><span className="text-xl">👨‍🏫</span><span className="font-bold text-lg">教师端</span><div className="flex gap-4 items-center">
+        <Link href="/teacher/assignments" className="text-sm text-[#6366f1] hover:underline">发布作业</Link>
+        <Link href="/" className="text-sm text-[#6366f1] hover:underline">退出</Link>
+      </div></div></nav>
       <div className="bg-white border-b"><div className="max-w-7xl mx-auto px-6 flex gap-1">
         {(["overview","errors","student","kp"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-3 text-sm font-medium border-b-2 transition cursor-pointer ${tab === t ? "border-[#6366f1] text-[#6366f1]" : "border-transparent text-gray-500"}`}>

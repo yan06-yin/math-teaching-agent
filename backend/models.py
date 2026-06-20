@@ -142,3 +142,29 @@ class ActivityLog(Base):
     activity_type = Column(String(50), nullable=False)  # homework / exam / login
     detail = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class Assignment(Base):
+    """教师发布的作业"""
+    __tablename__ = "assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, default="")
+    questions_json = Column(JSON, default=list)
+    due_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class AssignmentSubmission(Base):
+    """学生提交的作业"""
+    __tablename__ = "assignment_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    answers_json = Column(JSON, default=list)
+    score = Column(Float, default=0)
+    status = Column(String(20), default="submitted")
+    submitted_at = Column(DateTime, default=datetime.now(timezone.utc))
