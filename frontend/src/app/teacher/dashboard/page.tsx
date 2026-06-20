@@ -18,24 +18,30 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     const t = localStorage.getItem("token");
-    if (!t || localStorage.getItem("userType") !== "teacher") return;
+    if (!t || localStorage.getItem("userType") !== "teacher") {
+      setLoading(false);
+      return;
+    }
 
     const headers = { Authorization: `Bearer ${t}` };
+    let completed = 0;
+    const allDone = () => { completed++; if (completed >= 3) setLoading(false); };
 
     // 分别请求，互不影响
     axios.get("/api/teacher/dashboard", { headers })
       .then(r => setData(r.data))
-      .catch(() => {});
+      .catch(e => console.error('总览请求失败:', e))
+      .finally(allDone);
 
     axios.get("/api/teacher/errors", { headers })
       .then(r => setErrors(r.data))
-      .catch(() => {});
+      .catch(e => console.error('错题请求失败:', e))
+      .finally(allDone);
 
     axios.get("/api/teacher/students", { headers })
       .then(r => setStudentList(r.data))
-      .catch(() => {});
-
-    setLoading(false);
+      .catch(e => console.error('学生列表请求失败:', e))
+      .finally(allDone);
   }, []);
 
   const viewStudent = async (id: number) => {
