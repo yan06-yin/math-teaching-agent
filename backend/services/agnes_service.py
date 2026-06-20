@@ -253,6 +253,8 @@ class AgnesService:
             },
         ]
         return await self._chat_multimodal(messages, max_tokens=4096)
+
+    async def grade_homework(self, student_name: str, school_level: str,
                              questions_and_answers: str) -> dict:
         """批改作业"""
         json_example = json.dumps({
