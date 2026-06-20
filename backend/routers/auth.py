@@ -103,7 +103,60 @@ async def login(body: StudentLogin, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/student/set-password", response_model=TokenResponse)
+@router.post("/student/reset-password", response_model=TokenResponse)
+async def reset_student_password(
+    body: StudentLogin,
+    db: Session = Depends(get_db),
+):
+    """学生重置密码（通过姓名+学号验证身份后重置）"""
+    student = db.query(Student).filter(
+        Student.student_id == body.student_id,
+        Student.name == body.name,
+    ).first()
+
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="学号或姓名不正确",
+        )
+
+    student.password_hash = pwd_context.hash(body.password)
+    student.last_login = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(student)
+
+    token = create_access_token({"sub": str(student.id), "type": "student"})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user_type="student",
+        student_id=student.id,
+    )
+
+
+@router.post("/teacher/reset-password")
+async def reset_teacher_password(
+    body: TeacherLogin,
+    db: Session = Depends(get_db),
+):
+    """教师重置密码（通过用户名验证身份后重置）"""
+    teacher = db.query(Teacher).filter(Teacher.username == body.username).first()
+
+    if not teacher:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名不存在",
+        )
+
+    teacher.password_hash = pwd_context.hash(body.password)
+    db.commit()
+
+    token = create_access_token({"sub": str(teacher.id), "type": "teacher"})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user_type="teacher",
+    )
 async def set_password(
     body: StudentSetPassword,
     student_id: int,
