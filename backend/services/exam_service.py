@@ -87,6 +87,30 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
         exam.diagnostic_report = result
         db.commit()
 
+        # 记录错题到 ErrorRecord
+        from datetime import datetime, timezone
+        for detail in result.get("details", []):
+            if not detail.get("correct", True):
+                kp = normalize_knowledge_point(
+                    detail.get("question", "未分类")[:50]
+                )
+                existing = db.query(ErrorRecord).filter(
+                    ErrorRecord.student_id == exam.student_id,
+                    ErrorRecord.knowledge_point == kp,
+                ).first()
+                if existing:
+                    existing.error_count += 1
+                    existing.last_error_date = datetime.now(timezone.utc)
+                else:
+                    db.add(ErrorRecord(
+                        student_id=exam.student_id,
+                        knowledge_point=kp,
+                        question_text=detail.get("question", "")[:200],
+                        student_answer=detail.get("student_answer", ""),
+                        correct_answer=detail.get("correct_answer", ""),
+                    ))
+        db.commit()
+
         # 生成学习计划（如果分数<70 并且有错题）
         if exam.score < 70:
             weak_points = []
