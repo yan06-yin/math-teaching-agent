@@ -23,5 +23,8 @@ COPY --from=frontend /frontend/out /app/backend/frontend
 # 切换到 backend 目录
 WORKDIR /app/backend
 
+# 创建必要目录（数据库、上传文件）
+RUN mkdir -p /app/database /app/backend/uploads
+
 EXPOSE 8000
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
