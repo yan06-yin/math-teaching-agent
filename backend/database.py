@@ -48,8 +48,19 @@ try:
 
 except Exception as e:
     logger.error(f"❌ 数据库连接失败: {e}")
-    logger.error(f"   DATABASE_URL 前缀: {_db_url[:40] if _db_url else '(空)'}...")
-    raise
+    logger.warning("⚠️ 正在回退到 SQLite...")
+    # 回退到 SQLite
+    _db_url = f"sqlite:///{settings.DB_PATH}"
+    db_path = settings.DB_PATH
+    if not db_path or not os.path.exists(os.path.dirname(db_path)):
+        db_path = _db_url.replace("sqlite:///", "", 1)
+    DB_DIR = os.path.dirname(db_path)
+    os.makedirs(DB_DIR, exist_ok=True)
+    logger.info(f"📁 SQLite 数据库目录: {DB_DIR}")
+    engine = create_engine(
+        _db_url,
+        connect_args={"check_same_thread": False},
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
