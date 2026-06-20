@@ -1,19 +1,33 @@
 """
 数据库连接与初始化
+支持 SQLite（默认）、MySQL、PostgreSQL
 """
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from config import settings
 
-# 确保数据库目录存在
-DB_DIR = os.path.dirname(settings.DB_PATH)
-os.makedirs(DB_DIR, exist_ok=True)
+# 根据不同数据库类型设置连接参数
+if settings.DATABASE_URL.startswith("sqlite"):
+    # SQLite 需要确保目录存在
+    DB_DIR = os.path.dirname(settings.DB_PATH)
+    os.makedirs(DB_DIR, exist_ok=True)
+    engine = create_engine(
+        settings.DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
+elif settings.DATABASE_URL.startswith("mysql"):
+    # MySQL 使用 pymysql
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+    )
+else:
+    # PostgreSQL 或其他
+    engine = create_engine(settings.DATABASE_URL)
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False},  # SQLite 特有
-)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

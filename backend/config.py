@@ -10,9 +10,11 @@ class Settings(BaseSettings):
     # 项目根目录
     PROJECT_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    # SQLite 数据库
+    # 数据库（默认 SQLite，可通过 DATABASE_URL 环境变量切换 MySQL/PostgreSQL）
+    # MySQL 示例: mysql+pymysql://user:password@host:3306/dbname
+    # PostgreSQL 示例: postgresql://user:password@host:5432/dbname
     DB_PATH: str = os.path.join(PROJECT_DIR, "database", "math_teaching.db")
-    DATABASE_URL: str = f"sqlite:///{DB_PATH}"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
     # JWT
     SECRET_KEY: str = os.getenv("SECRET_KEY", "math-teaching-secret-key-change-in-production")
