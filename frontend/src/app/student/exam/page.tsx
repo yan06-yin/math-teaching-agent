@@ -31,10 +31,27 @@ export default function ExamPage() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const res = await axios.post(`/api/exam/${examId}/submit`, {
+      // 提交答卷（立即返回）
+      await axios.post(`/api/exam/${examId}/submit`, {
         answers: answers.map((a, i) => ({ question_index: i, answer: a })),
-      }, { headers, timeout: 180000 });
-      setResult(res.data); setStep("grading");
+      }, { headers, timeout: 10000 });
+
+      // 轮询等待批改完成
+      let attempts = 0;
+      const maxAttempts = 36; // 最多等 3 分钟
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        attempts++;
+        const statusRes = await axios.get(`/api/exam/${examId}/status`, { headers, timeout: 10000 });
+        if (statusRes.data.status === "done") {
+          setResult(statusRes.data);
+          setStep("grading");
+          setLoading(false);
+          return;
+        }
+      }
+      alert("批改超时，请稍后在诊断报告页面查看结果");
+      setStep("grading");
     } catch (e: any) { alert("提交失败：" + (e.response?.data?.detail || e.message)); } finally { setLoading(false); }
   };
 
@@ -67,7 +84,7 @@ export default function ExamPage() {
                 </div>
               </div>
             ))}
-            <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">{loading ? "提交中..." : "✅ 提交答卷"}</button>
+            <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">{loading ? "🤖 AI 批改中，请耐心等待..." : "✅ 提交答卷"}</button>
           </div>
         )}
         {step === "grading" && result && (
