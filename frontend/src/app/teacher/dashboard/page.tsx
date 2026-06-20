@@ -19,11 +19,23 @@ export default function TeacherDashboard() {
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (!t || localStorage.getItem("userType") !== "teacher") return;
-    Promise.all([
-      axios.get("/api/teacher/dashboard", { headers: { Authorization: `Bearer ${t}` } }),
-      axios.get("/api/teacher/errors", { headers: { Authorization: `Bearer ${t}` } }),
-      axios.get("/api/teacher/students", { headers: { Authorization: `Bearer ${t}` } }),
-    ]).then(([d, e, s]) => { setData(d.data); setErrors(e.data); setStudentList(s.data); }).catch(() => {}).finally(() => setLoading(false));
+
+    const headers = { Authorization: `Bearer ${t}` };
+
+    // 分别请求，互不影响
+    axios.get("/api/teacher/dashboard", { headers })
+      .then(r => setData(r.data))
+      .catch(() => {});
+
+    axios.get("/api/teacher/errors", { headers })
+      .then(r => setErrors(r.data))
+      .catch(() => {});
+
+    axios.get("/api/teacher/students", { headers })
+      .then(r => setStudentList(r.data))
+      .catch(() => {});
+
+    setLoading(false);
   }, []);
 
   const viewStudent = async (id: number) => {
