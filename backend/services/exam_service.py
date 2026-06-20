@@ -101,7 +101,36 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
         )
 
         exam.score = float(result.get("score", 0))
-        exam.diagnostic_report = result
+
+        # 生成人类可读的诊断报告（非 JSON）
+        comments = result.get("comments", "")
+        details = result.get("details", [])
+        correct_count = sum(1 for d in details if d.get("correct"))
+        wrong_details = [d for d in details if not d.get("correct")]
+
+        report_parts = [
+            f"📊 诊断分析报告",
+            f"",
+            f"得分：{exam.score}分（共{len(details)}题，正确{correct_count}题，错误{len(wrong_details)}题）",
+            f"",
+            f"📝 教师评语：",
+            f"{comments}",
+        ]
+
+        if wrong_details:
+            report_parts.extend(["", "❌ 错题分析："])
+            for i, w in enumerate(wrong_details, 1):
+                report_parts.append(f"")
+                report_parts.append(f"第{i}题：{w.get('question', '')}")
+                if w.get("student_answer"):
+                    report_parts.append(f"  你的答案：{w['student_answer']}")
+                if w.get("correct_answer"):
+                    report_parts.append(f"  正确答案：{w['correct_answer']}")
+                if w.get("explanation"):
+                    report_parts.append(f"  💡 解析：{w['explanation']}")
+
+        report_parts.extend(["", "💪 建议：", "根据本次答题情况，建议针对错题涉及的知识点进行复习。"])
+        exam.diagnostic_report = "\n".join(report_parts)
         db.commit()
 
         # 记录错题到 ErrorRecord
