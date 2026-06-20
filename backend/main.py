@@ -56,19 +56,21 @@ async def health_check():
     return {"status": "ok", "message": "数学教学智能体运行中"}
 
 
-# 前端 SPA 托管（所有非 /api/ 路由都返回 index.html）
+# 前端 SPA 托管
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 if FRONTEND_DIR.exists() and (FRONTEND_DIR / "index.html").exists():
-    app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / "_next")), name="next")
+    # 挂载所有前端静态资源
+    app.mount("/_next/static", StaticFiles(directory=str(FRONTEND_DIR / "_next" / "static")), name="next_static")
 
     index_html = FRONTEND_DIR / "index.html"
     index_content = index_html.read_text(encoding="utf-8")
 
-    @app.api_route("/{full_path:path}", methods=["GET"], include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_frontend(full_path: str):
-        if full_path.startswith("api/") or full_path.startswith("uploads/"):
+        if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("_next/"):
             return HTMLResponse(content="", status_code=404)
         fp = FRONTEND_DIR / full_path
         if fp.exists() and fp.is_file():
             return FileResponse(fp)
+        # 返回 SPA 入口
         return HTMLResponse(content=index_content)
