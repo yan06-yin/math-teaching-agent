@@ -1,6 +1,7 @@
 """
-批改服务 — 编排 OCR + Agnes AI 批改的完整流程
+批改服务 — 直接使用 Agnes AI 多模态识别图片并批改
 """
+import base64
 import logging
 import os
 from pathlib import Path
@@ -12,7 +13,6 @@ from sqlalchemy.orm import Session
 from config import settings
 from models import HomeworkSubmission, ErrorRecord
 from services.agnes_service import agences_service
-from services.ocr_service import ocr_service
 from utils.knowledge_mapper import normalize_knowledge_point
 
 logger = logging.getLogger(__name__)
@@ -25,10 +25,9 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     """
     完整作业批改流程：
     1. 保存照片
-    2. OCR 提取文字
-    3. 调用 Agnes AI 批改
-    4. 存入数据库
-    5. 更新错题记录
+    2. 将图片转为 base64 直接发给 Agnes AI 多模态模型识别并批改
+    3. 存入数据库
+    4. 更新错题记录
     """
     # Step 1: 保存照片
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -49,41 +48,37 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
 
     photo_url = f"/uploads/{filename}"
 
-    # Step 2: OCR 提取文字
-    extracted_text = ""
+    # Step 2: 读取图片并转为 base64
+    image_base64 = ""
     try:
-        extracted_text = ocr_service.extract_text(dest_path)
+        with open(dest_path, "rb") as f:
+            image_base64 = base64.b64encode(f.read()).decode("utf-8")
     except Exception as e:
-        logger.warning(f"OCR 失败: {e}")
+        logger.error(f"读取图片失败: {e}")
 
     # Step 3: 创建待批改记录
     submission = HomeworkSubmission(
         student_id=student_id,
         photo_url=photo_url,
-        extracted_text=extracted_text,
+        extracted_text="",
         student_answers=student_answers,
     )
     db.add(submission)
     db.commit()
     db.refresh(submission)
 
-    # Step 4: 调用 Agnes AI 批改
+    # Step 4: 调用 Agnes AI 多模态批改
     try:
-        # 组装作业内容
-        content = extracted_text or student_answers
-        if not content:
-            content = "(图片无法识别，请手动输入题目)"
-
         # 获取学生信息
         from models import Student
         student = db.query(Student).get(student_id)
         school_level = student.school_level if student else "初中"
         student_name = student.name if student else f"学生{student_id}"
 
-        result = await agences_service.grade_homework(
+        result = await agences_service.grade_homework_with_image(
             student_name=student_name,
             school_level=school_level,
-            questions_and_answers=content,
+            image_base64=image_base64,
         )
 
         # Step 5: 更新批改结果

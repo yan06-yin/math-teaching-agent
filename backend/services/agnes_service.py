@@ -159,7 +159,100 @@ class AgnesService:
 
     # ==================== 四大核心功能 ====================
 
-    async def grade_homework(self, student_name: str, school_level: str,
+    async def _chat_multimodal(self, messages: list[dict], max_tokens: int = 2048) -> dict:
+        """调用 Agnes AI 多模态接口（支持图片），带重试"""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        }
+
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
+                    resp = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+
+                if resp.status_code == 503:
+                    wait = (attempt + 1) * 2
+                    logger.warning(f"Agnes 503 限流，{wait}s 后重试 ({attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                return self._parse_json_response(content)
+
+            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                if attempt < 2:
+                    wait = (attempt + 1) * 3
+                    logger.warning(f"Agnes 多模态请求异常: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+            except Exception as e:
+                if attempt < 2:
+                    wait = (attempt + 1) * 2
+                    logger.warning(f"Agnes 多模态未知错误: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+
+        raise ValueError("Agnes AI 多模态请求多次重试后仍然失败")
+
+    async def grade_homework_with_image(self, student_name: str, school_level: str,
+                                         image_base64: str) -> dict:
+        """用图片直接批改作业（跳过OCR）"""
+        json_example = json.dumps({
+            "score": 85,
+            "correct_count": 4,
+            "total_count": 5,
+            "comments": "整体表现良好，但在...需要加强",
+            "details": [
+                {"question": "第1题：2x+3=7，求x", "correct": True, "feedback": "正确"},
+                {"question": "第2题：x²-4x+3=0", "correct": False, "student_answer": "x=1", "correct_answer": "x=1或x=3", "feedback": "漏了一个解", "explanation": "因式分解为(x-1)(x-3)=0"}
+            ]
+        }, ensure_ascii=False)
+
+        prompt = f"""你是一位经验丰富的数学老师，请识别图片中的数学题目并进行批改。
+
+学生信息：
+- 姓名：{student_name}
+- 学段：{school_level}
+
+请先读取图片中的所有数学题目，然后逐题批改。
+
+直接返回纯 JSON（不要使用 markdown 代码块），格式如下：
+{json_example}
+
+注意：
+- score 是 0-100 的整数
+- correct_count 和 total_count 必须准确
+- 每道题都要有 feedback
+- 错题必须包含 student_answer、correct_answer、explanation
+"""
+
+        messages = [
+            {"role": "system", "content": "你是一位专业的数学教师。必须从图片中识别题目并批改，以纯 JSON 格式回复。"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                ]
+            },
+        ]
+        return await self._chat_multimodal(messages, max_tokens=4096)
                              questions_and_answers: str) -> dict:
         """批改作业"""
         json_example = json.dumps({
