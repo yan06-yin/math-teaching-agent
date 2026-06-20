@@ -105,7 +105,77 @@ async def get_knowledge_point_errors(
     }
 
 
-@router.get("/dashboard")
+@router.get("/students")
+async def get_all_students(
+    current_user=Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    """教师查看所有学生信息（无论是否参加过考试）"""
+    students = db.query(Student).order_by(Student.created_at.desc()).all()
+    result = []
+    for s in students:
+        # 作业统计
+        hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
+            HomeworkSubmission.student_id == s.id
+        ).scalar() or 0
+        hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(
+            HomeworkSubmission.student_id == s.id
+        ).scalar() or 0
+
+        # 考试统计
+        exam_count = db.query(func.count(ExamAttempt.id)).filter(
+            ExamAttempt.student_id == s.id
+        ).scalar() or 0
+        exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
+            ExamAttempt.student_id == s.id
+        ).scalar() or 0
+
+        # 错题数
+        error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
+
+        # 薄弱知识点数
+        weak_count = db.query(func.count(func.distinct(ErrorRecord.knowledge_point))).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
+
+        avg_score = float((hw_avg + exam_avg) / 2) if hw_avg and exam_avg else float(hw_avg or exam_avg or 0)
+
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "student_id": s.student_id,
+            "level": s.school_level,
+            "homework_count": hw_count,
+            "exam_count": exam_count,
+            "avg_score": round(avg_score, 1),
+            "error_count": error_count,
+            "weak_points": weak_count,
+            "last_login": s.last_login.isoformat() if s.last_login else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+    return result
+
+
+@router.get("/students/{student_id}/info")
+async def get_student_full_info(
+    student_id: int,
+    current_user=Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    """教师查看某个学生的完整信息"""
+    student = db.query(Student).get(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    return {
+        "id": student.id,
+        "name": student.name,
+        "student_id": student.student_id,
+        "level": student.school_level,
+        "last_login": student.last_login.isoformat() if student.last_login else None,
+        "created_at": student.created_at.isoformat() if student.created_at else None,
+    }
 async def get_teacher_dashboard(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),

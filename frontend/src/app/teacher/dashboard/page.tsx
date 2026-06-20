@@ -4,12 +4,13 @@ import Link from "next/link";
 import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
-type Tab = "overview" | "errors" | "student" | "kp";
+type Tab = "overview" | "errors" | "students" | "student" | "kp";
 
 export default function TeacherDashboard() {
   const [tab, setTab] = useState<Tab>("overview");
   const [data, setData] = useState<any>(null);
   const [errors, setErrors] = useState<any[]>([]);
+  const [studentList, setStudentList] = useState<any[]>([]);
   const [selStudent, setSelStudent] = useState<any>(null);
   const [stErrors, setStErrors] = useState<any[]>([]);
   const [kpData, setKpData] = useState<any>(null);
@@ -21,7 +22,8 @@ export default function TeacherDashboard() {
     Promise.all([
       axios.get("/api/teacher/dashboard", { headers: { Authorization: `Bearer ${t}` } }),
       axios.get("/api/teacher/errors", { headers: { Authorization: `Bearer ${t}` } }),
-    ]).then(([d, e]) => { setData(d.data); setErrors(e.data); }).catch(() => {}).finally(() => setLoading(false));
+      axios.get("/api/teacher/students", { headers: { Authorization: `Bearer ${t}` } }),
+    ]).then(([d, e, s]) => { setData(d.data); setErrors(e.data); setStudentList(s.data); }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const viewStudent = async (id: number) => {
@@ -37,18 +39,24 @@ export default function TeacherDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b px-6 py-4"><div className="max-w-7xl mx-auto flex items-center justify-between"><span className="text-xl">👨‍🏫</span><span className="font-bold text-lg">教师端</span><div className="flex gap-4 items-center">
-        <Link href="/teacher/assignments" className="text-sm text-[#6366f1] hover:underline">发布作业</Link>
-        <Link href="/" className="text-sm text-[#6366f1] hover:underline">退出</Link>
-      </div></div></nav>
+      <nav className="bg-white border-b px-6 py-4"><div className="max-w-7xl mx-auto flex items-center justify-between">
+        <span className="text-xl">👨‍🏫</span><span className="font-bold text-lg">教师端</span>
+        <div className="flex gap-4 items-center">
+          <Link href="/teacher/assignments" className="text-sm text-[#6366f1] hover:underline">发布作业</Link>
+          <Link href="/" className="text-sm text-[#6366f1] hover:underline">退出</Link>
+        </div>
+      </div></nav>
       <div className="bg-white border-b"><div className="max-w-7xl mx-auto px-6 flex gap-1">
-        {(["overview","errors","student","kp"] as Tab[]).map(t => (
+        {(["overview","errors","students"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-3 text-sm font-medium border-b-2 transition cursor-pointer ${tab === t ? "border-[#6366f1] text-[#6366f1]" : "border-transparent text-gray-500"}`}>
-            {t === "overview" && "总览"}{t === "errors" && "知识点错误汇总"}{t === "student" && `学生: ${selStudent?.name||""}`}{t === "kp" && `知识点: ${kpData?.knowledge_point||""}`}
+            {t === "overview" && "📊 总览"}{t === "errors" && "❌ 错题汇总"}{t === "students" && "👥 学生列表"}
           </button>
         ))}
+        {tab === "student" && <span className="px-4 py-3 text-sm font-medium border-b-2 border-[#6366f1] text-[#6366f1]">👤 {selStudent?.name||""}</span>}
+        {tab === "kp" && <span className="px-4 py-3 text-sm font-medium border-b-2 border-[#6366f1] text-[#6366f1]">📖 {kpData?.knowledge_point||""}</span>}
       </div></div>
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* 总览 */}
         {tab === "overview" && (
           <>
             <div className="grid grid-cols-4 gap-4 mb-8">
@@ -59,14 +67,18 @@ export default function TeacherDashboard() {
             </div>
             <div className="card mb-8">
               <h3 className="font-semibold mb-4">需关注学生排行</h3>
-              <table className="w-full text-sm">{data?.top_error_students?.map((s: any, i: number) => (
-                <tr key={s.student_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => viewStudent(s.student_id)}>
-                  <td className="py-3 px-2">{i+1}</td><td className="py-3 px-2 font-medium">{s.name}</td><td className="py-3 px-2 text-right">{s.weak_points}知识点</td><td className="py-3 px-2 text-right text-red-600">{s.total_errors}错题</td>
-                </tr>
-              ))}</table>
+              {data?.top_error_students?.length > 0 ? (
+                <table className="w-full text-sm">{data?.top_error_students?.map((s: any, i: number) => (
+                  <tr key={s.student_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => viewStudent(s.student_id)}>
+                    <td className="py-3 px-2">{i+1}</td><td className="py-3 px-2 font-medium">{s.name}</td><td className="py-3 px-2 text-right">{s.weak_points}知识点</td><td className="py-3 px-2 text-right text-red-600">{s.total_errors}错题</td>
+                  </tr>
+                ))}</table>
+              ) : <div className="text-center py-8 text-gray-400">暂无错题数据</div>}
             </div>
           </>
         )}
+
+        {/* 错题汇总 */}
         {tab === "errors" && (
           <>
             <div className="card mb-6"><h3 className="font-semibold mb-4">全班知识点错误率</h3>
@@ -79,18 +91,64 @@ export default function TeacherDashboard() {
                   <div className="text-xs text-gray-400 mt-1">{e.affected_students}人 · 错误率{e.error_rate}%</div>
                 </div>
               ))}
+              {errors.length === 0 && <div className="text-center py-8 text-gray-400">暂无错题记录</div>}
             </div>
           </>
         )}
-        {tab === "student" && (
-          <div className="space-y-3">{stErrors.map((e, i) => (
-            <div key={i} className="card p-4"><div className="font-medium text-red-800">{e.knowledge_point}</div><div className="text-sm mt-1">{e.question}</div><div className="text-xs text-gray-500 mt-1">答案：{e.student_answer} → 正确：{e.correct_answer}</div></div>
-          ))}</div>
+
+        {/* 学生列表 */}
+        {tab === "students" && (
+          <div className="card">
+            <h3 className="font-semibold mb-4">👥 全部学生（共{studentList.length}人）</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b text-gray-500">
+                  <th className="text-left py-3 px-2">姓名</th><th className="text-left py-3 px-2">学号</th><th className="text-left py-3 px-2">学段</th>
+                  <th className="text-center py-3 px-2">作业</th><th className="text-center py-3 px-2">考试</th><th className="text-center py-3 px-2">均分</th>
+                  <th className="text-center py-3 px-2">错题</th><th className="text-center py-3 px-2">最近活动</th><th className="text-center py-3 px-2">操作</th>
+                </tr></thead>
+                <tbody>
+                  {studentList.map((s: any) => (
+                    <tr key={s.id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-2 font-medium">{s.name}</td>
+                      <td className="py-3 px-2">{s.student_id}</td>
+                      <td className="py-3 px-2">{s.level}</td>
+                      <td className="py-3 px-2 text-center">{s.homework_count}</td>
+                      <td className="py-3 px-2 text-center">{s.exam_count}</td>
+                      <td className="py-3 px-2 text-center font-medium">{s.avg_score}</td>
+                      <td className="py-3 px-2 text-center text-red-600">{s.error_count}</td>
+                      <td className="py-3 px-2 text-center text-xs text-gray-400">{s.last_login ? new Date(s.last_login).toLocaleDateString("zh-CN") : "未登录"}</td>
+                      <td className="py-3 px-2 text-center">
+                        <button onClick={() => viewStudent(s.id)} className="text-xs text-[#6366f1] hover:underline">错题详情</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
+
+        {/* 学生错题详情 */}
+        {tab === "student" && (
+          <div>
+            <button onClick={() => setTab("students")} className="text-[#6366f1] text-sm mb-4">← 返回学生列表</button>
+            {selStudent && <div className="card mb-4"><h3 className="font-semibold text-lg">{selStudent.name} 的错题</h3><span className="text-sm text-gray-500">{selStudent.level}</span></div>}
+            {stErrors.length > 0 ? stErrors.map((e, i) => (
+              <div key={i} className="card p-4 mb-3"><div className="font-medium text-red-800">{e.knowledge_point}</div><div className="text-sm mt-1">{e.question}</div><div className="text-xs text-gray-500 mt-1">答：{e.student_answer} → 正确：{e.correct_answer}</div></div>
+            )) : <div className="text-center py-8 text-gray-400">暂无错题</div>}
+          </div>
+        )}
+
+        {/* 知识点钻取 */}
         {tab === "kp" && kpData && (
-          <div className="space-y-3">{kpData.errors?.map((e: any, i: number) => (
-            <div key={i} className="card p-4"><span className="font-medium text-indigo-600">{e.student_name}</span><div className="text-sm mt-1">{e.question}</div><div className="text-xs text-gray-500 mt-1">答：{e.student_answer} → {e.correct_answer}</div></div>
-          ))}</div>
+          <div>
+            <button onClick={() => setTab("errors")} className="text-[#6366f1] text-sm mb-4">← 返回</button>
+            {kpData.errors?.map((e: any, i: number) => (
+              <div key={i} className="card p-4 mb-3"><span className="font-medium text-indigo-600">{e.student_name}</span><div className="text-sm mt-1">{e.question}</div><div className="text-xs text-gray-500 mt-1">答：{e.student_answer} → {e.correct_answer}</div></div>
+            ))}
+            {(!kpData.errors || kpData.errors.length === 0) && <div className="text-center py-8 text-gray-400">暂无错题</div>}
+          </div>
         )}
       </main>
     </div>
