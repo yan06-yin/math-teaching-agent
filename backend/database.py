@@ -43,6 +43,9 @@ try:
             max_overflow=10,
             pool_pre_ping=True,
         )
+        # 立即测试连接（create_engine 是懒连接，不主动连接不会报错）
+        with engine.connect():
+            pass
     else:
         raise ValueError(f"不支持的数据库类型（URL 前缀）: {_db_url[:30]}...")
 

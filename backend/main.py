@@ -1,6 +1,7 @@
 """
 FastAPI 主应用入口
 """
+import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -8,6 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pathlib import Path
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 
 from config import settings
 from database import init_db
@@ -53,7 +57,19 @@ app.include_router(assignments.router, prefix="/api", tags=["作业发布"])
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "message": "数学教学智能体运行中"}
+    db_type = "unknown"
+    _url = settings.DATABASE_URL
+    if _url.startswith("sqlite"):
+        db_type = "SQLite"
+    elif _url.startswith("mysql"):
+        db_type = "MySQL"
+    elif _url.startswith("postgresql") or _url.startswith("postgres"):
+        db_type = "PostgreSQL"
+    return {
+        "status": "ok",
+        "message": "数学教学智能体运行中",
+        "database": db_type,
+    }
 
 
 # 前端 SPA 托管
