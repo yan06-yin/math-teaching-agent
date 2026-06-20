@@ -176,6 +176,8 @@ async def get_student_full_info(
         "last_login": student.last_login.isoformat() if student.last_login else None,
         "created_at": student.created_at.isoformat() if student.created_at else None,
     }
+
+@router.get("/dashboard")
 async def get_teacher_dashboard(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
