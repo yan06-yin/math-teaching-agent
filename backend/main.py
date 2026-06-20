@@ -60,17 +60,21 @@ async def health_check():
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 if FRONTEND_DIR.exists() and (FRONTEND_DIR / "index.html").exists():
     # 挂载所有前端静态资源
-    app.mount("/_next/static", StaticFiles(directory=str(FRONTEND_DIR / "_next" / "static")), name="next_static")
+    app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / "_next")), name="next")
 
-    index_html = FRONTEND_DIR / "index.html"
-    index_content = index_html.read_text(encoding="utf-8")
+    index_content = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_frontend(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("_next/"):
             return HTMLResponse(content="", status_code=404)
+        # 尝试精确匹配静态文件
         fp = FRONTEND_DIR / full_path
         if fp.exists() and fp.is_file():
             return FileResponse(fp)
-        # 返回 SPA 入口
+        # 尝试添加 .html 后缀
+        fp_html = FRONTEND_DIR / f"{full_path}.html"
+        if fp_html.exists() and fp_html.is_file():
+            return FileResponse(fp_html)
+        # SPA 回退
         return HTMLResponse(content=index_content)
