@@ -4,7 +4,7 @@
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -133,7 +133,7 @@ async def delete_class(
 @router.post("/{class_id}/invite-codes")
 async def generate_invite_code(
     class_id: int,
-    body: Optional[InviteCodeGenerate] = None,
+    request: Request,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
@@ -143,8 +143,11 @@ async def generate_invite_code(
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
 
-    # 使用默认值
-    if body is None:
+    # 解析可选请求体
+    body = None
+    try:
+        body = InviteCodeGenerate(**(await request.json() or {}))
+    except Exception:
         body = InviteCodeGenerate()
 
     # 生成唯一邀请码
