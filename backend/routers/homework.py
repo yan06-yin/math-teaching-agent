@@ -51,9 +51,9 @@ async def _run_grading_background(grading_task_id: int):
             except Exception as e:
                 logger.error(f"读取图片失败: {e}")
 
-            # 调用 Agnes AI 多模态批改
-            from services.agnes_service import agences_service
-            result = await agences_service.grade_homework_with_image(
+            # 调用 AI 多模态批改
+            from services.open_model_service import open_model_service
+            result = await open_model_service.grade_homework_with_image(
                 student_name=student_name,
                 school_level=school_level,
                 image_base64=image_base64,

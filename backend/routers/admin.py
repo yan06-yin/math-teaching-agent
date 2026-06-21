@@ -376,8 +376,8 @@ async def create_ai_provider(
     db.commit()
     db.refresh(provider)
 
-    from services.agnes_service import agences_service
-    agences_service.reload_from_db(db)
+    from services.open_model_service import open_model_service
+    open_model_service.reload_from_db(db)
 
     return {
         "id": provider.id,
@@ -412,8 +412,8 @@ async def update_ai_provider(
 
     db.commit()
 
-    from services.agnes_service import agences_service
-    agences_service.reload_from_db(db)
+    from services.open_model_service import open_model_service
+    open_model_service.reload_from_db(db)
 
     return {"message": "配置已更新并生效"}
 
@@ -434,13 +434,13 @@ async def delete_ai_provider(
     db.commit()
 
     if was_active:
-        from services.agnes_service import agences_service
+        from services.open_model_service import open_model_service
         fallback = db.query(AIProvider).filter(AIProvider.is_active == True).first()
         if not fallback:
             fallback = db.query(AIProvider).first()
             if fallback:
                 fallback.is_active = True
                 db.commit()
-        agences_service.reload_from_db(db)
+        open_model_service.reload_from_db(db)
 
     return {"message": "配置已删除"}

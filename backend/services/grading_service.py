@@ -1,5 +1,5 @@
 """
-批改服务 — 直接使用 Agnes AI 多模态识别图片并批改
+批改服务 — 直接使用 AI 多模态识别图片并批改
 """
 import base64
 import logging
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import HomeworkSubmission, ErrorRecord
-from services.agnes_service import agences_service
+from services.open_model_service import open_model_service
 from utils.knowledge_mapper import normalize_knowledge_point
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,6 @@ def ensure_upload_dir():
         Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.warning(f"无法创建上传目录: {e}")
-        # 尝试当前目录
         alt_dir = Path("uploads")
         alt_dir.mkdir(parents=True, exist_ok=True)
         if alt_dir.exists():
@@ -34,20 +33,12 @@ def ensure_upload_dir():
 
 async def process_homework(db: Session, student_id: int, photo_path: str,
                            student_answers: str = "") -> HomeworkSubmission:
-    """
-    完整作业批改流程：
-    1. 保存照片
-    2. 将图片转为 base64 直接发给 Agnes AI 多模态模型识别并批改
-    3. 存入数据库
-    4. 更新错题记录
-    """
-    # Step 1: 保存照片
+    """完整作业批改流程"""
     ensure_upload_dir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"homework_{student_id}_{timestamp}.jpg"
     dest_path = Path(settings.UPLOAD_DIR) / filename
 
-    # 如果是 URL，下载；如果是本地路径，复制
     if photo_path.startswith(("http://", "https://")):
         import httpx
         async with httpx.AsyncClient(timeout=30) as client:
@@ -60,7 +51,6 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
 
     photo_url = f"/uploads/{filename}"
 
-    # Step 2: 读取图片并转为 base64
     image_base64 = ""
     try:
         with open(dest_path, "rb") as f:
@@ -68,7 +58,6 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     except Exception as e:
         logger.error(f"读取图片失败: {e}")
 
-    # Step 3: 创建待批改记录
     submission = HomeworkSubmission(
         student_id=student_id,
         photo_url=photo_url,
@@ -79,21 +68,18 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     db.commit()
     db.refresh(submission)
 
-    # Step 4: 调用 Agnes AI 多模态批改
     try:
-        # 获取学生信息
         from models import Student
         student = db.query(Student).get(student_id)
         school_level = student.school_level if student else "初中"
         student_name = student.name if student else f"学生{student_id}"
 
-        result = await agences_service.grade_homework_with_image(
+        result = await open_model_service.grade_homework_with_image(
             student_name=student_name,
             school_level=school_level,
             image_base64=image_base64,
         )
 
-        # Step 5: 更新批改结果
         submission.score = float(result.get("score", 0))
         submission.correct_count = int(result.get("correct_count", 0))
         submission.total_count = int(result.get("total_count", 0))
@@ -101,7 +87,6 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
         submission.wrong_questions = result.get("details", [])
         db.commit()
 
-        # Step 6: 更新错题记录
         for wrong in submission.wrong_questions or []:
             if not wrong.get("correct", True):
                 kp = normalize_knowledge_point(wrong.get("question", "未知知识点"))
@@ -121,9 +106,8 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
                         correct_answer=wrong.get("correct_answer", ""),
                     ))
                 db.commit()
-
     except Exception as e:
-        logger.error(f"Agnes AI 批改失败: {e}")
+        logger.error(f"AI 批改失败: {e}")
         submission.comments = f"批改失败: {str(e)}"
         db.commit()
 

@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from models import ExamAttempt, Student, ErrorRecord
-from services.agnes_service import agences_service
+from services.open_model_service import open_model_service
 from utils.knowledge_mapper import normalize_knowledge_point
 
 logger = logging.getLogger(__name__)
@@ -38,27 +38,15 @@ async def generate_and_save_exam(db: Session, student_id: int,
     }
 
     try:
-        result = await agences_service.generate_exam(
+        result = await open_model_service.generate_exam(
             school_level=config.get("school_level", "初中"),
             config=exam_config,
         )
 
         questions = result.get("questions", [])
 
-        # 为需要配图的题目生成图片（如图形、抛物线、几何题）
-        import re
-        img_keywords = ["如图", "图形", "图像", "图象", "抛物线", "二次函数", "几何", "三角形", "四边形",
-                        "圆", "菱形", "正方形", "矩形", "平行", "坐标", "坐标系", "函数图像"]
-        for q in questions:
-            q_text = q.get("question", "")
-            if any(kw in q_text for kw in img_keywords):
-                try:
-                    img_prompt = f"数学教学示意图：{q_text[:100]}。简洁清晰的数学示意图，白底黑线，专业风格。"
-                    img_result = await agences_service.generate_image(prompt=img_prompt)
-                    if img_result and img_result.get("data"):
-                        q["image_url"] = img_result["data"][0].get("url", "")
-                except Exception:
-                    pass  # 图片生成失败不影响出题
+        # 跳过图片生成（非 OpenAI 兼容接口不支持）
+        # 如需配图可后续通过其他接口生成
 
         exam = ExamAttempt(
             student_id=student_id,
@@ -94,7 +82,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
             for i, a in enumerate(answers)
         )
 
-        result = await agences_service.grade_homework(
+        result = await open_model_service.grade_homework(
             student_name=student.name if student else f"学生{exam.student_id}",
             school_level=student.school_level if student else "初中",
             questions_and_answers=f"题目:\n{questions_str}\n\n学生答案:\n{answers_str}",
@@ -161,7 +149,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
                 weak_points = [d.get("explanation", d.get("question", "未分类")) for d in details if not d.get("correct", True)]
             if not weak_points:
                 weak_points = ["综合基础"]
-            plan = await agences_service.generate_learning_plan(
+            plan = await open_model_service.generate_learning_plan(
                 student_name=student.name if student else "该学生",
                 school_level=student.school_level if student else "初中",
                 weak_points=weak_points[:5],

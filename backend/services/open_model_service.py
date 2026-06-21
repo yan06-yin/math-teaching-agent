@@ -1,12 +1,11 @@
 """
-Agnes AI API 调用服务
-使用 Agnes AI 多模态模型进行批改、出题、诊断、学习计划
-同时支持 Agnes Image 2.1 Flash 图像生成
+OpenModel / OpenAI 兼容 API 调用服务
+支持任何兼容 OpenAI Chat Completions API 的模型提供商
 """
 import asyncio
 import json
 import logging
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 import httpx
 
@@ -18,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AgnesService:
+class OpenModelService:
     """AI API 客户端 — 从数据库动态读取配置，支持管理后台切换模型"""
 
     def __init__(self):
@@ -34,8 +33,9 @@ class AgnesService:
             if db_session is None:
                 from database import SessionLocal
                 db_session = SessionLocal()
+                close_session = True
             else:
-                db_session = db_session
+                close_session = False
 
             from models import AIProvider
             provider = db_session.query(AIProvider).filter(AIProvider.is_active == True).first()
@@ -45,13 +45,13 @@ class AgnesService:
                 self.model = provider.model
                 self._provider_id = provider.id
                 logger.info(f"AI 模型配置已切换: {provider.name} ({provider.model})")
-            if db_session is None:
+            if close_session:
                 db_session.close()
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
     async def _chat(self, messages: list[dict], max_tokens: int = 2048) -> dict:
-        """调用 Agnes AI 聊天接口，带重试"""
+        """调用 OpenAI 兼容聊天接口，带重试"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -64,83 +64,70 @@ class AgnesService:
             "temperature": 0.7,
         }
 
-        # 最多重试 2 次（首次 + 2 次重试 = 3 次总尝试）
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
+
+        # 最多重试 3 次
         for attempt in range(3):
             try:
-                # 每次都新建 client，避免复用连接导致问题
-                async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
+                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
+                    resp = await client.post(url, headers=headers, json=payload)
 
                 if resp.status_code == 503:
-                    wait = (attempt + 1) * 2
-                    logger.warning(f"Agnes 503 限流，{wait}s 后重试 ({attempt+1}/3)")
+                    wait = (attempt + 1) * 3
+                    logger.warning(f"503 限流，{wait}s 后重试 ({attempt+1}/3)")
                     await asyncio.sleep(wait)
                     continue
 
+                if resp.status_code == 401:
+                    raise ValueError(f"API Key 无效（401）: 请检查管理后台的 AI 模型配置")
+
                 resp.raise_for_status()
                 data = resp.json()
-                content = data["choices"][0]["message"]["content"]
+
+                # 兼容不同响应格式
+                content = ""
+                if "choices" in data and len(data["choices"]) > 0:
+                    choice = data["choices"][0]
+                    if "message" in choice and "content" in choice["message"]:
+                        content = choice["message"]["content"]
+                    elif "delta" in choice and "content" in choice.get("delta", {}):
+                        content = choice["delta"]["content"]
+                    elif "text" in choice:
+                        content = choice["text"]
+                elif "content" in data:
+                    content = data["content"]
+
+                if not content:
+                    logger.warning(f"API 返回空内容: {json.dumps(data)[:300]}")
+                    return {"raw": json.dumps(data, ensure_ascii=False)}
+
                 return self._parse_json_response(content)
 
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            except httpx.TimeoutException:
                 if attempt < 2:
-                    wait = (attempt + 1) * 3
-                    logger.warning(f"Agnes 请求异常: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    wait = (attempt + 1) * 5
+                    logger.warning(f"请求超时，{wait}s 后重试 ({attempt+1}/3)")
                     await asyncio.sleep(wait)
                     continue
+                raise
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                if attempt < 2:
+                    wait = (attempt + 1) * 3
+                    logger.warning(f"请求异常: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+            except ValueError:
                 raise
             except Exception as e:
                 if attempt < 2:
                     wait = (attempt + 1) * 2
-                    logger.warning(f"Agnes 未知错误: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    logger.warning(f"未知错误: {e}，{wait}s 后重试 ({attempt+1}/3)")
                     await asyncio.sleep(wait)
                     continue
                 raise
 
-        raise ValueError("Agnes AI 请求多次重试后仍然失败")
-
-    async def generate_image(self, prompt: str, size: str = "1024x1024") -> dict:
-        """调用 Agnes Image 2.1 Flash 生成图片"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": "agnes-image-2.1-flash",
-            "prompt": prompt,
-            "size": size,
-            "response_format": "url",
-        }
-
-        for attempt in range(3):
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/images/generations",
-                        headers=headers,
-                        json=payload,
-                    )
-
-                if resp.status_code == 503:
-                    await asyncio.sleep((attempt + 1) * 2)
-                    continue
-
-                resp.raise_for_status()
-                data = resp.json()
-                return data
-
-            except Exception as e:
-                if attempt < 2:
-                    await asyncio.sleep((attempt + 1) * 2)
-                    continue
-                raise
-
-        raise ValueError("图片生成多次重试后失败")
+        raise ValueError("AI 请求多次重试后仍然失败")
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
@@ -154,89 +141,29 @@ class AgnesService:
         except (json.JSONDecodeError, TypeError):
             pass
 
-        # 2. 如果 text 本身是个 JSON 字符串（被包在字符串里了）
-        # 检查 text 是否以 { 开头
         text_stripped = text.strip()
-        if text_stripped.startswith("{"):
-            try:
-                return json.loads(text_stripped)
-            except json.JSONDecodeError:
-                pass
 
-        # 3. 尝试提取 ```json ... ``` 中的 JSON
+        # 2. 尝试提取 ```json ... ``` 中的 JSON
         import re
-        match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text_stripped, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(1).strip())
             except json.JSONDecodeError:
                 pass
 
-        # 4. 尝试找第一个 { 到最后一个 }
-        start = text.find("{")
-        end = text.rfind("}") + 1
+        # 3. 尝试找第一个 { 到最后一个 }
+        start = text_stripped.find("{")
+        end = text_stripped.rfind("}") + 1
         if start != -1 and end > start:
-            candidate = text[start:end]
+            candidate = text_stripped[start:end]
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
                 pass
 
-        # 5. 最后退路
+        # 4. 最后退路
         return {"raw": text}
-
-    # ==================== 四大核心功能 ====================
-
-    async def _chat_multimodal(self, messages: list[dict], max_tokens: int = 2048) -> dict:
-        """调用 Agnes AI 多模态接口（支持图片），带重试"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.7,
-        }
-
-        for attempt in range(3):
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-
-                if resp.status_code == 503:
-                    wait = (attempt + 1) * 2
-                    logger.warning(f"Agnes 503 限流，{wait}s 后重试 ({attempt+1}/3)")
-                    await asyncio.sleep(wait)
-                    continue
-
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                return self._parse_json_response(content)
-
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                if attempt < 2:
-                    wait = (attempt + 1) * 3
-                    logger.warning(f"Agnes 多模态请求异常: {e}，{wait}s 后重试 ({attempt+1}/3)")
-                    await asyncio.sleep(wait)
-                    continue
-                raise
-            except Exception as e:
-                if attempt < 2:
-                    wait = (attempt + 1) * 2
-                    logger.warning(f"Agnes 多模态未知错误: {e}，{wait}s 后重试 ({attempt+1}/3)")
-                    await asyncio.sleep(wait)
-                    continue
-                raise
-
-        raise ValueError("Agnes AI 多模态请求多次重试后仍然失败")
 
     async def grade_homework_with_image(self, student_name: str, school_level: str,
                                          image_base64: str) -> dict:
@@ -280,7 +207,7 @@ class AgnesService:
                 ]
             },
         ]
-        return await self._chat_multimodal(messages, max_tokens=4096)
+        return await self._chat(messages, max_tokens=4096)
 
     async def grade_homework(self, student_name: str, school_level: str,
                              questions_and_answers: str) -> dict:
@@ -405,4 +332,4 @@ class AgnesService:
 
 
 # 全局单例
-agences_service = AgnesService()
+open_model_service = OpenModelService()

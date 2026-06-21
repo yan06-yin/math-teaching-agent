@@ -125,6 +125,8 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
             task.error_message = str(e)
             bg_db.commit()
         logger.error(f"后台出题失败: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         bg_db.close()
 
