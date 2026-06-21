@@ -18,8 +18,10 @@ async def get_error_summary(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
     knowledge_point: str = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ):
-    """获取本班错题汇总（仅自己班级学生）"""
+    """获取本班错题汇总（仅自己班级学生），支持分页"""
     teacher = current_user[0]
 
     # 获取该教师班级内学生 ID
@@ -123,8 +125,10 @@ async def get_all_students(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
     class_id: int = Query(None, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    """教师查看所管理班级的学生（可指定 class_id 筛选）"""
+    """教师查看所管理班级的学生（支持分页）"""
     teacher = current_user[0]
 
     # 获取该教师的所有班级 ID
@@ -151,7 +155,8 @@ async def get_all_students(
         )
         query = db.query(Student).filter(Student.id.in_(cs_student_ids))
 
-    students = query.order_by(Student.created_at.desc()).all()
+    total = query.count()
+    students = query.order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
     result = []
     for s in students:
         # 作业统计
@@ -195,7 +200,12 @@ async def get_all_students(
             "last_login": s.last_login.isoformat() if s.last_login else None,
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
-    return result
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "students": result,
+    }
 
 
 @router.get("/students/{student_id}/info")

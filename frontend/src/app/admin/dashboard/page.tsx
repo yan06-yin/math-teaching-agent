@@ -30,7 +30,7 @@ export default function AdminDashboard() {
     if (d?.data) setData(d.data);
     if (t?.data) setTeachers(t.data);
     if (c?.data) setClasses(c.data);
-    if (s?.data) setStudents(s.data);
+    if (s?.data) setStudents(s.data.students || s.data);
     if (a?.data) setAssignments(a.data);
     if (e?.data) setExams(e.data);
     setLoading(false);

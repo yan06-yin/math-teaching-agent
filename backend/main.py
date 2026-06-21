@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 
 from config import settings
 from database import init_db
-from routers import auth, homework, exam, analysis, teacher, coze_plugin, assignments, classes, admin
+from routers import auth, homework, exam, analysis, teacher, assignments, classes, admin
 from seed_admin import seed_admin
 
 

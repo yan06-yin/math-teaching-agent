@@ -47,7 +47,7 @@ export default function TeacherDashboard() {
     const allDone = () => { if (++completed >= 3) setLoading(false); };
     axios.get("/api/teacher/dashboard", { headers: h }).then(r => setData(r.data)).catch(() => {}).finally(allDone);
     axios.get("/api/teacher/errors", { headers: h }).then(r => setErrors(r.data)).catch(() => {}).finally(allDone);
-    axios.get("/api/teacher/students", { headers: h }).then(r => setStudentList(r.data)).catch(() => {}).finally(allDone);
+    axios.get("/api/teacher/students", { headers: h }).then(r => setStudentList(r.data.students || r.data)).catch(() => {}).finally(allDone);
   }, []);
 
   const viewStudent = async (id: number) => {

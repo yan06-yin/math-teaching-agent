@@ -1,7 +1,7 @@
 """
 管理员路由 — 管理教师、班级、学生、作业、成绩
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -153,9 +153,12 @@ async def admin_delete_class(
 async def list_all_students(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
-    """查看所有学生"""
-    students = db.query(Student).order_by(Student.created_at.desc()).all()
+    """查看所有学生（支持分页）"""
+    total = db.query(func.count(Student.id)).scalar() or 0
+    students = db.query(Student).order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
     result = []
     for s in students:
         cs = db.query(ClassStudent).filter(ClassStudent.student_id == s.id).first()
@@ -179,10 +182,14 @@ async def list_all_students(
             "homework_count": hw_count,
             "exam_count": exam_count,
             "avg_score": round(avg_score, 1),
-            "last_login": s.last_login.isoformat() if s.last_login else None,
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
-    return result
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "students": result,
+    }
 
 
 @router.post("/students/assign")

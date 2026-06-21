@@ -1,1 +1,1 @@
-from . import auth, homework, exam, analysis, teacher, coze_plugin, classes, admin
+from . import auth, homework, exam, analysis, teacher, classes, admin
