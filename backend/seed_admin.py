@@ -84,9 +84,34 @@ def seed_admin():
                 is_active=True,
             )
             db.add(default)
+            # 同时添加 DeepSeek V4 Flash 作为选项（需要用户在管理后台切换并配置 API Key）
+            deepseek = AIProvider(
+                name="DeepSeek V4 Flash",
+                provider="openai-compatible",
+                base_url="https://api.openmodel.ai/v1",
+                api_key="",
+                model="deepseek-v4-flash",
+                is_active=False,
+            )
+            db.add(deepseek)
             db.commit()
-            logger.info("已添加默认 AI 模型配置: Agnes AI Flash")
+            logger.info("已添加默认 AI 模型配置: Agnes AI Flash (默认) + DeepSeek V4 Flash (可选)")
         else:
+            # 确保 DeepSeek 也在列表中（如果不存在）
+            deepseek_exists = db.query(AIProvider).filter(AIProvider.model == "deepseek-v4-flash").first()
+            if not deepseek_exists:
+                deepseek = AIProvider(
+                    name="DeepSeek V4 Flash",
+                    provider="openai-compatible",
+                    base_url="https://api.openmodel.ai/v1",
+                    api_key="",
+                    model="deepseek-v4-flash",
+                    is_active=False,
+                )
+                db.add(deepseek)
+                db.commit()
+                logger.info("已添加 DeepSeek V4 Flash 选项")
+
             if not db.query(AIProvider).filter(AIProvider.is_active == True).first():
                 first = db.query(AIProvider).first()
                 if first:
