@@ -1,6 +1,6 @@
 """
 Agnes AI API 调用服务
-替代 Coze，使用 Agnes AI 多模态模型进行批改、出题、诊断、学习计划
+使用 Agnes AI 多模态模型进行批改、出题、诊断、学习计划
 同时支持 Agnes Image 2.1 Flash 图像生成
 """
 import asyncio
