@@ -74,18 +74,18 @@ def seed_admin():
         from models import AIProvider
         existing_provider = db.query(AIProvider).first()
         if not existing_provider:
-            # 默认使用 DeepSeek V4 Flash（通过 OpenModel 代理）
+            # 默认使用 Agnes AI Flash（便宜，支持多模态图片识别）
             default = AIProvider(
-                name="DeepSeek V4 Flash",
+                name="Agnes AI Flash (默认)",
                 provider="openai-compatible",
-                base_url="https://api.openmodel.ai/v1",
+                base_url="https://apihub.agnes-ai.com/v1",
                 api_key=settings.AGNES_API_KEY or "",
-                model="deepseek-v4-flash",
+                model="agnes-2.0-flash",
                 is_active=True,
             )
             db.add(default)
             db.commit()
-            logger.info("已添加默认 AI 模型配置: DeepSeek V4 Flash (via OpenModel)")
+            logger.info("已添加默认 AI 模型配置: Agnes AI Flash")
         else:
             if not db.query(AIProvider).filter(AIProvider.is_active == True).first():
                 first = db.query(AIProvider).first()

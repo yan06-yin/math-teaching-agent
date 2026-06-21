@@ -1,6 +1,8 @@
 """
 OpenModel / OpenAI 兼容 API 调用服务
 支持任何兼容 OpenAI Chat Completions API 的模型提供商
+默认使用 Agnes AI Flash（便宜、支持多模态图片识别）
+可在管理后台切换为 DeepSeek、OpenAI 等其他模型
 """
 import asyncio
 import json

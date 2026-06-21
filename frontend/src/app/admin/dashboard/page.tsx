@@ -45,13 +45,11 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const [aiLoaded, setAiLoaded] = useState(false);
   const loadAiProviders = async () => {
     try {
       const r = await axios.get("/api/admin/ai-providers", { headers: headers() });
       if (r.data) setAiProviders(r.data);
-      setAiLoaded(true);
-    } catch { setAiLoaded(true); }
+    } catch {}
   };
 
   const handleSaveAiProvider = async () => {
@@ -329,7 +327,9 @@ export default function AdminDashboard() {
               <div className="table-wrap !border-0">
                 <table className="w-full">
                   <thead><tr><th>名称</th><th>模型</th><th>API 地址</th><th>状态</th><th>添加时间</th><th>操作</th></tr></thead>
-                  <tbody>{aiProviders.length > 0 ? aiProviders.map((p: any) => (
+                  <tbody>{aiProviders.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-8 text-gray-400">暂无 AI 配置，请先添加（默认使用 Agnes AI Flash）</td></tr>
+                  ) : aiProviders.map((p: any) => (
                     <tr key={p.id}>
                       <td className="font-medium">{p.name}</td>
                       <td><code className="px-2 py-0.5 bg-gray-100 rounded text-xs">{p.model}</code></td>
@@ -341,7 +341,8 @@ export default function AdminDashboard() {
                         <button onClick={() => handleDeleteAi(p.id)} className="btn-danger btn-sm">删除</button>
                       </td>
                     </tr>
-                  )) : <tr><td colSpan={6} className="text-center py-8 text-gray-400">暂无 AI 配置，请添加</td></tr>}</tbody>
+                  ))}
+                </tbody>
                 </table>
               </div>
             </div>
