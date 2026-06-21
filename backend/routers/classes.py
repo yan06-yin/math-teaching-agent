@@ -15,6 +15,7 @@ from schemas import (
     StudentInClass, InviteCodeInfo,
 )
 from utils.auth import require_teacher, require_student
+from typing import Optional
 
 router = APIRouter()
 
@@ -132,9 +133,9 @@ async def delete_class(
 @router.post("/{class_id}/invite-codes")
 async def generate_invite_code(
     class_id: int,
+    body: Optional[InviteCodeGenerate] = None,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
-    body: InviteCodeGenerate = None,
 ):
     """为班级生成邀请码"""
     teacher = current_user[0]
