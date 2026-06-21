@@ -28,14 +28,15 @@ export default function ExamPage() {
 
       // 2. 轮询等待试卷生成完成
       let attempts = 0;
-      const maxAttempts = 36; // 最多等 3 分钟
+      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
       while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
         attempts++;
         const statusRes = await axios.get(`/api/exam/generate/${eid}/status`, { headers, timeout: 10000 });
         if (statusRes.data.status === "done") {
-          setQuestions(statusRes.data.questions || []);
-          setAnswers(new Array((statusRes.data.questions || []).length).fill(""));
+          const qs = statusRes.data.questions || [];
+          setQuestions(qs);
+          setAnswers(new Array(qs.length).fill(""));
           setStep("taking");
           setLoading(false);
           return;
@@ -44,6 +45,10 @@ export default function ExamPage() {
           alert("出题失败：" + (statusRes.data.error || "未知错误"));
           setLoading(false);
           return;
+        }
+        // 每 15 秒更新一下状态提示
+        if (attempts % 5 === 0) {
+          setLoading(true); // 保持 loading
         }
       }
       alert("出题超时，请稍后重试");
@@ -60,14 +65,19 @@ export default function ExamPage() {
 
       // 轮询等待批改完成
       let attempts = 0;
-      const maxAttempts = 36; // 最多等 3 分钟
+      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
       while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
         attempts++;
         const statusRes = await axios.get(`/api/exam/${examId}/status`, { headers, timeout: 10000 });
         if (statusRes.data.status === "done") {
           setResult(statusRes.data);
           setStep("grading");
+          setLoading(false);
+          return;
+        }
+        if (statusRes.data.status === "error") {
+          alert("批改失败：" + (statusRes.data.error || "未知错误"));
           setLoading(false);
           return;
         }

@@ -26,9 +26,9 @@ export default function UploadPage() {
 
       // 轮询等待批改完成
       let attempts = 0;
-      const maxAttempts = 36; // 最多等 3 分钟
+      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
       while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
         attempts++;
         const statusRes = await axios.get(`/api/homework/upload/${sid}/status`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },

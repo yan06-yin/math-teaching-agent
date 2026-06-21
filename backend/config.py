@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
 
-    # Agnes AI API（替代 Coze）
+    # Agnes AI API（替代 Coze）| .env 文件示例：
+    # AGNES_API_KEY=your_key_here
+    # AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+    # AGNES_MODEL=agnes-2.0-flash
     AGNES_API_KEY: str = ""
     AGNES_BASE_URL: str = "https://apihub.agnes-ai.com/v1"
     AGNES_MODEL: str = "agnes-2.0-flash"
