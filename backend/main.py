@@ -16,12 +16,18 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 from config import settings
 from database import init_db
 from routers import auth, homework, exam, analysis, teacher, coze_plugin, assignments, classes, admin
+from seed_admin import seed_admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库"""
     init_db()
+    # 自动创建管理员账号
+    try:
+        seed_admin()
+    except Exception as e:
+        logging.warning(f"管理员账号初始化跳过: {e}")
     # 确保上传目录存在
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     yield
