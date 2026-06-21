@@ -4,7 +4,7 @@
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -15,7 +15,6 @@ from schemas import (
     StudentInClass, InviteCodeInfo,
 )
 from utils.auth import require_teacher, require_student
-from typing import Optional
 
 router = APIRouter()
 
@@ -135,20 +134,14 @@ async def generate_invite_code(
     class_id: int,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
-    request: Request = None,
+    max_used_count: int = 0,
+    expires_in_days: Optional[int] = None,
 ):
-    """为班级生成邀请码"""
+    """为班级生成邀请码（max_used_count=0 不限次数，expires_in_days 为空不过期）"""
     teacher = current_user[0]
     cls = db.query(Class).filter(Class.id == class_id, Class.teacher_id == teacher.id).first()
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-
-    # 解析可选请求体
-    body = None
-    try:
-        body = InviteCodeGenerate(**(await request.json() or {}))
-    except Exception:
-        body = InviteCodeGenerate()
 
     # 生成唯一邀请码
     while True:
@@ -160,10 +153,10 @@ async def generate_invite_code(
     invite = InviteCode(
         class_id=class_id,
         code=code,
-        max_used_count=body.max_used_count,
+        max_used_count=max_used_count,
         expires_at=(
-            datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
-            if body.expires_in_days else None
+            datetime.now(timezone.utc) + timedelta(days=expires_in_days)
+            if expires_in_days else None
         ),
     )
     db.add(invite)
