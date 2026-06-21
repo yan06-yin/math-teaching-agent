@@ -1,11 +1,10 @@
 # ===== Stage 1: 构建前端 =====
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
-ARG BUILD_TIMESTAMP
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --legacy-peer-deps
 COPY frontend/ .
-RUN npm run build
+RUN rm -rf out .next && NEXT_TELEMETRY_DISABLED=1 npm run build
 
 # ===== Stage 2: Python 后端 =====
 FROM python:3.11-slim
