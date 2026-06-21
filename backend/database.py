@@ -78,6 +78,36 @@ def init_db():
     """创建所有表"""
     Base.metadata.create_all(bind=engine)
 
+    # 兼容旧数据库：检查并添加缺失的列
+    try:
+        from sqlalchemy import inspect, text as sa_text
+        inspector = inspect(engine)
+
+        # 检查 students 表
+        student_cols = {c["name"] for c in inspector.get_columns("students")} if "students" in inspector.get_table_names() else set()
+        if student_cols:
+            if "is_deleted" not in student_cols:
+                with engine.connect() as conn:
+                    conn.execute(sa_text("ALTER TABLE students ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
+                    conn.commit()
+                    logger.info("✅ 已为 students 表添加 is_deleted 列")
+
+        # 检查 teachers 表
+        teacher_cols = {c["name"] for c in inspector.get_columns("teachers")} if "teachers" in inspector.get_table_names() else set()
+        if teacher_cols:
+            if "is_admin" not in teacher_cols:
+                with engine.connect() as conn:
+                    conn.execute(sa_text("ALTER TABLE teachers ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+                    conn.commit()
+                    logger.info("✅ 已为 teachers 表添加 is_admin 列")
+            if "is_deleted" not in teacher_cols:
+                with engine.connect() as conn:
+                    conn.execute(sa_text("ALTER TABLE teachers ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
+                    conn.commit()
+                    logger.info("✅ 已为 teachers 表添加 is_deleted 列")
+    except Exception as e:
+        logger.warning(f"数据库兼容性检查（可忽略）: {e}")
+
 
 def get_db():
     """依赖注入：获取数据库会话"""

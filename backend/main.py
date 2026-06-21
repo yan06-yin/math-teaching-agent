@@ -45,13 +45,17 @@ app = FastAPI(
 )
 
 
-# 全局异常处理器 —— 捕获所有未处理的异常并记录详细信息
+# 全局异常处理器 —— 捕获所有未处理的 500 异常并记录详细信息
+@app.exception_handler(500)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # 让 FastAPI 自己处理 HTTPException 和 ValidationError
+    if hasattr(exc, "status_code"):
+        raise exc
     logging.error(f"未捕获的异常: {exc}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
-        content={"detail": f"系统内部错误: {type(exc).__name__}: {str(exc)}"},
+        content={"detail": f"{type(exc).__name__}: {str(exc)}"},
     )
 
 
