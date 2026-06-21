@@ -26,6 +26,9 @@ async def lifespan(app: FastAPI):
     # 自动创建管理员账号
     try:
         seed_admin()
+        # 启动时从数据库加载 AI 模型配置
+        from services.agnes_service import agences_service
+        agences_service.reload_from_db()
     except Exception as e:
         logging.warning(f"管理员账号初始化跳过: {e}")
     # 确保上传目录存在

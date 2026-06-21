@@ -289,3 +289,121 @@ async def list_exam_records(
             "created_at": e.created_at.isoformat() if e.created_at else None,
         })
     return result
+
+
+# ===== AI 模型配置 =====
+
+@router.get("/ai-providers")
+async def list_ai_providers(
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """查看所有 AI 模型配置"""
+    from models import AIProvider
+    providers = db.query(AIProvider).order_by(AIProvider.created_at.desc()).all()
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "provider": p.provider,
+            "base_url": p.base_url,
+            "model": p.model,
+            "is_active": p.is_active,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in providers
+    ]
+
+
+@router.post("/ai-providers")
+async def create_ai_provider(
+    body: dict,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """新增 AI 模型配置"""
+    from models import AIProvider
+
+    if body.get("is_active"):
+        db.query(AIProvider).filter(AIProvider.is_active == True).update({"is_active": False})
+
+    provider = AIProvider(
+        name=body["name"],
+        provider=body.get("provider", "openai-compatible"),
+        base_url=body["base_url"].rstrip("/"),
+        api_key=body["api_key"],
+        model=body["model"],
+        is_active=body.get("is_active", False),
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+
+    from services.agnes_service import agences_service
+    agences_service.reload_from_db(db)
+
+    return {
+        "id": provider.id,
+        "name": provider.name,
+        "model": provider.model,
+        "is_active": provider.is_active,
+        "message": "配置已添加并生效",
+    }
+
+
+@router.put("/ai-providers/{provider_id}")
+async def update_ai_provider(
+    provider_id: int,
+    body: dict,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """更新 AI 模型配置"""
+    from models import AIProvider
+    provider = db.query(AIProvider).get(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="配置不存在")
+
+    if body.get("is_active"):
+        db.query(AIProvider).filter(AIProvider.is_active == True, AIProvider.id != provider_id).update({"is_active": False})
+
+    for field in ["name", "provider", "base_url", "api_key", "model"]:
+        if field in body:
+            setattr(provider, field, body[field])
+    if "is_active" in body:
+        provider.is_active = body["is_active"]
+
+    db.commit()
+
+    from services.agnes_service import agences_service
+    agences_service.reload_from_db(db)
+
+    return {"message": "配置已更新并生效"}
+
+
+@router.delete("/ai-providers/{provider_id}")
+async def delete_ai_provider(
+    provider_id: int,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """删除 AI 模型配置"""
+    from models import AIProvider
+    provider = db.query(AIProvider).get(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="配置不存在")
+    was_active = provider.is_active
+    db.delete(provider)
+    db.commit()
+
+    if was_active:
+        from services.agnes_service import agences_service
+        fallback = db.query(AIProvider).filter(AIProvider.is_active == True).first()
+        if not fallback:
+            fallback = db.query(AIProvider).first()
+            if fallback:
+                fallback.is_active = True
+                db.commit()
+        agences_service.reload_from_db(db)
+
+    return {"message": "配置已删除"}

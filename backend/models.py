@@ -230,3 +230,17 @@ class GradingTask(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
+
+
+class AIProvider(Base):
+    """AI 模型提供商配置"""
+    __tablename__ = "ai_providers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)  # 显示名称，如 "Agnes Flash" / "DeepSeek"
+    provider = Column(String(50), nullable=False)  # 标识，如 "openai-compatible"
+    base_url = Column(String(256), nullable=False)
+    api_key = Column(String(512), nullable=False)
+    model = Column(String(100), nullable=False)
+    is_active = Column(Boolean, default=False)  # 只有一个可以活跃
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))

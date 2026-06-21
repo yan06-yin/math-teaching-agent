@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import Link from "next/link";
 
-type Tab = "overview" | "teachers" | "classes" | "students" | "assignments" | "exams";
+type Tab = "overview" | "teachers" | "classes" | "students" | "assignments" | "exams" | "ai";
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -14,6 +14,9 @@ export default function AdminDashboard() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [exams, setExams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [aiProviders, setAiProviders] = useState<any[]>([]);
+  const [showAddAi, setShowAddAi] = useState(false);
+  const [aiForm, setAiForm] = useState({ name: "", base_url: "", api_key: "", model: "", is_active: false });
 
   const headers = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}` });
 
@@ -37,6 +40,34 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  const loadAiProviders = async () => {
+    try { setAiProviders((await axios.get("/api/admin/ai-providers", { headers: headers() })).data); } catch {}
+  };
+
+  const handleSaveAiProvider = async () => {
+    if (!aiForm.name || !aiForm.base_url || !aiForm.api_key || !aiForm.model) return alert("请填写完整");
+    try {
+      await axios.post("/api/admin/ai-providers", aiForm, { headers: headers() });
+      setShowAddAi(false); setAiForm({ name: "", base_url: "", api_key: "", model: "", is_active: false });
+      loadAiProviders();
+    } catch (e: any) { alert("保存失败：" + (e.response?.data?.detail || e.message)); }
+  };
+
+  const handleActivateAi = async (id: number) => {
+    try {
+      await axios.put(`/api/admin/ai-providers/${id}`, { is_active: true }, { headers: headers() });
+      loadAiProviders();
+    } catch (e: any) { alert("切换失败：" + (e.response?.data?.detail || e.message)); }
+  };
+
+  const handleDeleteAi = async (id: number) => {
+    if (!confirm("确定删除该 AI 配置？")) return;
+    try {
+      await axios.delete(`/api/admin/ai-providers/${id}`, { headers: headers() });
+      loadAiProviders();
+    } catch (e: any) { alert("删除失败：" + (e.response?.data?.detail || e.message)); }
+  };
 
   const handleDeleteTeacher = async (id: number, name: string) => {
     if (!confirm(`确定删除教师「${name}」？会级联删除所有班级和学生关联。`)) return;
@@ -80,6 +111,7 @@ export default function AdminDashboard() {
     { key: "students", label: "👥 学生管理" },
     { key: "assignments", label: "📋 作业管理" },
     { key: "exams", label: "📝 考试/成绩" },
+    { key: "ai", label: "🤖 AI 模型" },
   ];
 
   return (
@@ -246,6 +278,61 @@ export default function AdminDashboard() {
                       <td className="text-center text-xs text-gray-400">{e.created_at ? new Date(e.created_at).toLocaleString("zh-CN") : "-"}</td>
                     </tr>
                   )) : <tr><td colSpan={5} className="text-center py-8 text-gray-400">暂无考试记录</td></tr>}</tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* AI 模型配置 */}
+        {tab === "ai" && (
+          <>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold">🤖 AI 模型配置</h2>
+              <button onClick={() => { loadAiProviders(); setShowAddAi(true); }} className="btn-primary btn-sm">+ 添加模型</button>
+            </div>
+
+            {showAddAi && (
+              <div className="card mb-6 bg-gradient-to-r from-indigo-50 to-white border-indigo-100">
+                <h3 className="font-semibold mb-4">添加 AI 模型</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-gray-600 mb-1">名称 <span className="text-red-500">*</span></label>
+                    <input className="input" placeholder="例: DeepSeek V3" value={aiForm.name} onChange={e => setAiForm(f => ({...f, name: e.target.value}))} /></div>
+                  <div><label className="block text-xs font-medium text-gray-600 mb-1">模型 ID <span className="text-red-500">*</span></label>
+                    <input className="input" placeholder="例: deepseek-chat" value={aiForm.model} onChange={e => setAiForm(f => ({...f, model: e.target.value}))} /></div>
+                  <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">API 地址 <span className="text-red-500">*</span></label>
+                    <input className="input" placeholder="例: https://api.deepseek.com/v1" value={aiForm.base_url} onChange={e => setAiForm(f => ({...f, base_url: e.target.value}))} /></div>
+                  <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">API Key <span className="text-red-500">*</span></label>
+                    <input className="input" type="password" placeholder="sk-..." value={aiForm.api_key} onChange={e => setAiForm(f => ({...f, api_key: e.target.value}))} /></div>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="ai-active" checked={aiForm.is_active} onChange={e => setAiForm(f => ({...f, is_active: e.target.checked}))} />
+                    <label htmlFor="ai-active" className="text-sm">添加后立即启用</label>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button onClick={handleSaveAiProvider} className="btn-primary btn-sm">💾 保存</button>
+                  <button onClick={() => setShowAddAi(false)} className="btn-secondary btn-sm">取消</button>
+                </div>
+              </div>
+            )}
+
+            <div className="card !p-0">
+              <div className="table-wrap !border-0">
+                <table className="w-full">
+                  <thead><tr><th>名称</th><th>模型</th><th>API 地址</th><th>状态</th><th>添加时间</th><th>操作</th></tr></thead>
+                  <tbody>{aiProviders.length > 0 ? aiProviders.map((p: any) => (
+                    <tr key={p.id}>
+                      <td className="font-medium">{p.name}</td>
+                      <td><code className="px-2 py-0.5 bg-gray-100 rounded text-xs">{p.model}</code></td>
+                      <td className="text-xs text-gray-500 max-w-[200px] truncate">{p.base_url}</td>
+                      <td>{p.is_active ? <span className="badge badge-success">活跃中</span> : <span className="badge badge-gray">未启用</span>}</td>
+                      <td className="text-xs text-gray-400">{p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : "-"}</td>
+                      <td className="text-center whitespace-nowrap">
+                        {!p.is_active && <button onClick={() => handleActivateAi(p.id)} className="btn-primary btn-sm mr-1">启用</button>}
+                        <button onClick={() => handleDeleteAi(p.id)} className="btn-danger btn-sm">删除</button>
+                      </td>
+                    </tr>
+                  )) : <tr><td colSpan={6} className="text-center py-8 text-gray-400">暂无 AI 配置，请添加</td></tr>}</tbody>
                 </table>
               </div>
             </div>

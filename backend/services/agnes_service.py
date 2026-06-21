@@ -6,21 +6,49 @@ Agnes AI API 调用服务
 import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 import httpx
+
 from config import settings
+
+if TYPE_CHECKING:
+    from models import AIProvider
 
 logger = logging.getLogger(__name__)
 
 
 class AgnesService:
-    """Agnes AI API 客户端"""
+    """AI API 客户端 — 从数据库动态读取配置，支持管理后台切换模型"""
 
     def __init__(self):
+        # 从环境变量读取默认值（首次启动时无数据库配置时使用）
         self.api_key = settings.AGNES_API_KEY
         self.base_url = settings.AGNES_BASE_URL
         self.model = settings.AGNES_MODEL
+        self._provider_id: Optional[int] = None
+
+    def reload_from_db(self, db_session=None):
+        """从数据库加载活跃的 AI 提供商配置"""
+        try:
+            if db_session is None:
+                from database import SessionLocal
+                db_session = SessionLocal()
+            else:
+                db_session = db_session
+
+            from models import AIProvider
+            provider = db_session.query(AIProvider).filter(AIProvider.is_active == True).first()
+            if provider:
+                self.api_key = provider.api_key
+                self.base_url = provider.base_url
+                self.model = provider.model
+                self._provider_id = provider.id
+                logger.info(f"AI 模型配置已切换: {provider.name} ({provider.model})")
+            if db_session is None:
+                db_session.close()
+        except Exception as e:
+            logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
     async def _chat(self, messages: list[dict], max_tokens: int = 2048) -> dict:
         """调用 Agnes AI 聊天接口，带重试"""
