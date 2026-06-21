@@ -32,5 +32,6 @@ RUN mkdir -p /app/database /app/backend/uploads
 
 EXPOSE 8000
 
-# 多 worker 启动：2 workers × 2 threads + 4 uvicorn workers
+# API 版本号（通过环境变量控制，默认 v1）
+ENV API_PREFIX=/api/v1
 CMD sh -c "uvicorn main:app --host 0.0.0.0 --port \${PORT:-8000} --workers 4 --limit-concurrency 128"

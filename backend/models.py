@@ -20,6 +20,7 @@ class Student(Base):
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
     role = Column(String(20), default="student", nullable=False)
     last_login = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     homework_submissions = relationship("HomeworkSubmission", back_populates="student")
@@ -36,6 +37,7 @@ class Teacher(Base):
     password_hash = Column(String(128), nullable=False)
     school = Column(String(100), default="")
     is_admin = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
 
@@ -63,6 +65,7 @@ class HomeworkSubmission(Base):
     comments = Column(Text, default="")
     wrong_questions_json = Column(JSON, default=list)
     status = Column(String(20), default="pending")  # pending / grading / done / error
+    is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     student = relationship("Student", back_populates="homework_submissions")
@@ -87,6 +90,7 @@ class ExamAttempt(Base):
     score = Column(Float, default=0)
     diagnostic_report = Column(JSON, default=dict)    # 诊断报告
     learning_plan = Column(JSON, default=list)        # 学习计划
+    is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     student = relationship("Student", back_populates="exam_attempts")

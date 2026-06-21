@@ -102,7 +102,7 @@ async def delete_teacher(
     # 班级
     db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
 
-    db.delete(teacher)
+    teacher.is_deleted = True
     db.commit()
     return {"message": f"已删除教师 {teacher.name}"}
 
@@ -142,7 +142,7 @@ async def admin_delete_class(
     cls = db.query(Class).get(class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-    db.delete(cls)
+    cls.is_deleted = True
     db.commit()
     return {"message": "班级已删除"}
 
@@ -158,7 +158,7 @@ async def list_all_students(
 ):
     """查看所有学生（支持分页）"""
     total = db.query(func.count(Student.id)).scalar() or 0
-    students = db.query(Student).order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
+    students = db.query(Student).filter(Student.is_deleted == False).order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
     result = []
     for s in students:
         cs = db.query(ClassStudent).filter(ClassStudent.student_id == s.id).first()

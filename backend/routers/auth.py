@@ -234,7 +234,7 @@ async def delete_teacher(
     # 班级
     db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
 
-    db.delete(teacher)
+    teacher.is_deleted = True
     db.commit()
     return {"message": f"已删除教师 {teacher.name} 及相关数据"}
 

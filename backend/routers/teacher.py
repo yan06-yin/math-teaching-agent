@@ -142,7 +142,7 @@ async def get_all_students(
     )
 
     # 查询学生（可进一步按 class_id 筛选）
-    query = db.query(Student).filter(Student.id.in_(student_ids))
+    query = db.query(Student).filter(Student.id.in_(student_ids), Student.is_deleted == False)
     if class_id:
         # 验证该班级属于当前教师
         cls = db.query(Class).filter(Class.id == class_id, Class.teacher_id == teacher.id).first()
@@ -153,7 +153,7 @@ async def get_all_students(
             .filter(ClassStudent.class_id == class_id)
             .subquery()
         )
-        query = db.query(Student).filter(Student.id.in_(cs_student_ids))
+        query = db.query(Student).filter(Student.id.in_(cs_student_ids), Student.is_deleted == False)
 
     total = query.count()
     students = query.order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
@@ -233,19 +233,12 @@ async def delete_student(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师删除学生及其所有关联数据"""
+    """软删除学生"""
     student = db.query(Student).get(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    # 级联清理关联数据
-    db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
-    db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
-    db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
-    db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
-    db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
-
-    db.delete(student)
+    student.is_deleted = True
     db.commit()
     return {"message": f"已删除学生 {student.name}({student.student_id})"}
 
