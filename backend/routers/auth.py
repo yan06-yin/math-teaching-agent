@@ -183,6 +183,18 @@ async def set_password(
     )
 
 
+@router.delete("/teacher/me")
+async def delete_teacher(
+    current_user=Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    """教师删除自己的账号"""
+    teacher = current_user[0]
+    db.delete(teacher)
+    db.commit()
+    return {"message": f"已删除教师 {teacher.name}"}
+
+
 @router.post("/teacher/login", response_model=TokenResponse)
 async def teacher_login(body: TeacherLogin, db: Session = Depends(get_db)):
     """教师登录"""

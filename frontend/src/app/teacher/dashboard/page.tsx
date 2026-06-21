@@ -15,6 +15,25 @@ export default function TeacherDashboard() {
   const [stErrors, setStErrors] = useState<any[]>([]);
   const [kpData, setKpData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingSelf, setDeletingSelf] = useState(false);
+
+  const handleDeleteSelf = async () => {
+    if (!confirm("确定要删除自己的教师账号吗？\n此操作不可恢复，所有数据将被永久删除。")) return;
+    setDeletingSelf(true);
+    try {
+      await axios.delete("/api/auth/teacher/me", { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
+      localStorage.removeItem("token");
+      localStorage.removeItem("userType");
+      localStorage.removeItem("userName");
+      alert("账号已删除");
+      window.location.href = "/";
+    } catch (e: any) {
+      alert("删除失败：" + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeletingSelf(false);
+    }
+  };
 
   useEffect(() => {
     const t = localStorage.getItem("token");
@@ -53,6 +72,20 @@ export default function TeacherDashboard() {
     setKpData(r.data); setTab("kp");
   };
 
+  const handleDeleteStudent = async (id: number, name: string) => {
+    if (!confirm(`确定要删除学生「${name}」吗？\n此操作不可恢复，相关作业、考试、错题记录也会被一并删除。`)) return;
+    setDeletingId(id);
+    try {
+      await axios.delete(`/api/teacher/students/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
+      setStudentList(prev => prev.filter(s => s.id !== id));
+      alert("删除成功");
+    } catch (e: any) {
+      alert("删除失败：" + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner"></div></div>;
 
   return (
@@ -61,7 +94,8 @@ export default function TeacherDashboard() {
         <span className="text-xl">👨‍🏫</span><span className="font-bold text-lg">教师端</span>
         <div className="flex gap-4 items-center">
           <Link href="/teacher/assignments" className="text-sm text-[#6366f1] hover:underline">发布作业</Link>
-          <Link href="/" className="text-sm text-[#6366f1] hover:underline">退出</Link>
+          <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("userType"); localStorage.removeItem("userName"); window.location.href = "/"; }} className="text-sm text-[#6366f1] hover:underline">退出</button>
+          <button onClick={handleDeleteSelf} disabled={deletingSelf} className="text-sm text-red-500 hover:underline disabled:opacity-50">{deletingSelf ? "删除中..." : "注销账号"}</button>
         </div>
       </div></nav>
       <div className="bg-white border-b"><div className="max-w-7xl mx-auto px-6 flex gap-1">
@@ -123,7 +157,7 @@ export default function TeacherDashboard() {
                 <thead><tr className="border-b text-gray-500">
                   <th className="text-left py-3 px-2">姓名</th><th className="text-left py-3 px-2">学号</th><th className="text-left py-3 px-2">学段</th>
                   <th className="text-center py-3 px-2">作业</th><th className="text-center py-3 px-2">考试</th><th className="text-center py-3 px-2">均分</th>
-                  <th className="text-center py-3 px-2">错题</th><th className="text-center py-3 px-2">最近活动</th><th className="text-center py-3 px-2">操作</th>
+                  <th className="text-center py-3 px-2">错题</th><th className="text-center py-3 px-2">最近活动</th><th className="text-center py-3 px-2">操作</th><th className="text-center py-3 px-2">删除</th>
                 </tr></thead>
                 <tbody>
                   {studentList.map((s: any) => (
@@ -138,6 +172,15 @@ export default function TeacherDashboard() {
                       <td className="py-3 px-2 text-center text-xs text-gray-400">{s.last_login ? new Date(s.last_login).toLocaleDateString("zh-CN") : "未登录"}</td>
                       <td className="py-3 px-2 text-center">
                         <button onClick={() => viewStudent(s.id)} className="text-xs text-[#6366f1] hover:underline">错题详情</button>
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          onClick={() => handleDeleteStudent(s.id, s.name)}
+                          disabled={deletingId === s.id}
+                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        >
+                          {deletingId === s.id ? "删除中..." : "删除"}
+                        </button>
                       </td>
                     </tr>
                   ))}

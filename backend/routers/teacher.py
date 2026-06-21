@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
-from models import Student, ErrorRecord, HomeworkSubmission, ExamAttempt
+from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission
 from utils.auth import require_teacher
 from utils.knowledge_mapper import normalize_knowledge_point
 
@@ -176,6 +176,29 @@ async def get_student_full_info(
         "last_login": student.last_login.isoformat() if student.last_login else None,
         "created_at": student.created_at.isoformat() if student.created_at else None,
     }
+
+@router.delete("/students/{student_id}")
+async def delete_student(
+    student_id: int,
+    current_user=Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    """教师删除学生及其所有关联数据"""
+    student = db.query(Student).get(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 级联清理关联数据
+    db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
+    db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
+    db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
+    db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
+    db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
+
+    db.delete(student)
+    db.commit()
+    return {"message": f"已删除学生 {student.name}({student.student_id})"}
+
 
 @router.get("/dashboard")
 async def get_teacher_dashboard(
