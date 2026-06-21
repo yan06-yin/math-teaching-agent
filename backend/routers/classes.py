@@ -133,9 +133,9 @@ async def delete_class(
 @router.post("/{class_id}/invite-codes")
 async def generate_invite_code(
     class_id: int,
-    request: Request,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """为班级生成邀请码"""
     teacher = current_user[0]
