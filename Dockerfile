@@ -1,6 +1,7 @@
 # ===== Stage 1: 构建前端 =====
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
+ARG BUILD_TIMESTAMP
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --legacy-peer-deps
 COPY frontend/ .
