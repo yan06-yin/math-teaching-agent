@@ -45,8 +45,13 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadAll(); }, []);
 
+  const [aiLoaded, setAiLoaded] = useState(false);
   const loadAiProviders = async () => {
-    try { setAiProviders((await axios.get("/api/admin/ai-providers", { headers: headers() })).data); } catch {}
+    try {
+      const r = await axios.get("/api/admin/ai-providers", { headers: headers() });
+      if (r.data) setAiProviders(r.data);
+      setAiLoaded(true);
+    } catch { setAiLoaded(true); }
   };
 
   const handleSaveAiProvider = async () => {
