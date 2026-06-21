@@ -29,7 +29,7 @@ COPY backend/ ./backend/
 COPY --from=frontend /frontend/out /app/backend/frontend
 
 WORKDIR /app/backend
-RUN mkdir -p /app/database /app/backend/uploads && chown -R app:app /app/database /app/backend/uploads /app/backend
+RUN mkdir -p /app/database /app/uploads && chown -R app:app /app/database /app/uploads /app/backend
 
 EXPOSE 8000
 
