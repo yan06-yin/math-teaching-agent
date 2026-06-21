@@ -82,29 +82,33 @@ def init_db():
     try:
         from sqlalchemy import inspect, text as sa_text
         inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
 
-        # 检查 students 表
-        student_cols = {c["name"] for c in inspector.get_columns("students")} if "students" in inspector.get_table_names() else set()
-        if student_cols:
-            if "is_deleted" not in student_cols:
-                with engine.connect() as conn:
-                    conn.execute(sa_text("ALTER TABLE students ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
-                    conn.commit()
-                    logger.info("✅ 已为 students 表添加 is_deleted 列")
+        # 需要检查的列缺失情况
+        migrations = [
+            ("students", "is_deleted", "BOOLEAN DEFAULT FALSE"),
+            ("teachers", "is_admin", "BOOLEAN DEFAULT FALSE"),
+            ("teachers", "is_deleted", "BOOLEAN DEFAULT FALSE"),
+            ("assignments", "class_id", "INTEGER REFERENCES classes(id)"),
+            ("assignments", "due_date", "TIMESTAMP"),
+            ("homework_submissions", "wrong_questions_json", "JSON DEFAULT '[]'"),
+            ("homework_submissions", "status", "VARCHAR(20) DEFAULT 'pending'"),
+            ("homework_submissions", "is_deleted", "BOOLEAN DEFAULT FALSE"),
+            ("exam_attempts", "is_deleted", "BOOLEAN DEFAULT FALSE"),
+        ]
 
-        # 检查 teachers 表
-        teacher_cols = {c["name"] for c in inspector.get_columns("teachers")} if "teachers" in inspector.get_table_names() else set()
-        if teacher_cols:
-            if "is_admin" not in teacher_cols:
-                with engine.connect() as conn:
-                    conn.execute(sa_text("ALTER TABLE teachers ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
-                    conn.commit()
-                    logger.info("✅ 已为 teachers 表添加 is_admin 列")
-            if "is_deleted" not in teacher_cols:
-                with engine.connect() as conn:
-                    conn.execute(sa_text("ALTER TABLE teachers ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
-                    conn.commit()
-                    logger.info("✅ 已为 teachers 表添加 is_deleted 列")
+        for table, column, col_type in migrations:
+            if table in table_names:
+                cols = {c["name"] for c in inspector.get_columns(table)}
+                if column not in cols:
+                    with engine.connect() as conn:
+                        try:
+                            conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                            conn.commit()
+                            logger.info(f"已为 {table} 表添加 {column} 列")
+                        except Exception as e:
+                            conn.rollback()
+                            logger.warning(f"添加 {table}.{column} 失败（可忽略）: {e}")
     except Exception as e:
         logger.warning(f"数据库兼容性检查（可忽略）: {e}")
 

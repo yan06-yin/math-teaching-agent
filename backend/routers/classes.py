@@ -132,7 +132,7 @@ async def delete_class(
 @router.post("/{class_id}/invite-codes")
 async def generate_invite_code(
     class_id: int,
-    body: InviteCodeGenerate,
+    body: InviteCodeGenerate = None,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
@@ -141,6 +141,10 @@ async def generate_invite_code(
     cls = db.query(Class).filter(Class.id == class_id, Class.teacher_id == teacher.id).first()
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
+
+    # 使用默认值
+    if body is None:
+        body = InviteCodeGenerate()
 
     # 生成唯一邀请码
     while True:
