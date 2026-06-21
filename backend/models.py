@@ -53,7 +53,7 @@ class HomeworkSubmission(Base):
     __tablename__ = "homework_submissions"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     photo_url = Column(String(512), nullable=False)
     extracted_text = Column(Text, default="")
     student_answers = Column(Text, default="")
@@ -80,7 +80,7 @@ class ExamAttempt(Base):
     __tablename__ = "exam_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     exam_config_json = Column(JSON, nullable=False)  # 出题配置
     questions_json = Column(JSON, nullable=False)     # 题目
     student_answers = Column(JSON, default=list)      # 学生答案
@@ -109,7 +109,7 @@ class ErrorRecord(Base):
     __tablename__ = "error_records"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     knowledge_point = Column(String(100), nullable=False)
     question_text = Column(Text, default="")
     student_answer = Column(Text, default="")
@@ -139,7 +139,7 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     activity_type = Column(String(50), nullable=False)  # homework / exam / login
     detail = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
@@ -164,8 +164,8 @@ class AssignmentSubmission(Base):
     __tablename__ = "assignment_submissions"
 
     id = Column(Integer, primary_key=True, index=True)
-    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
-    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     answers_json = Column(JSON, default=list)
     score = Column(Float, default=0)
     status = Column(String(20), default="submitted")
@@ -178,7 +178,7 @@ class Class(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False, index=True)
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
@@ -208,10 +208,25 @@ class ClassStudent(Base):
     __tablename__ = "class_students"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("students.id"), unique=True, nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), unique=True, nullable=False, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
     joined_via = Column(String(20), default="invite")  # invite / manual
     joined_at = Column(DateTime, default=datetime.now(timezone.utc))
 
     class_ = relationship("Class", back_populates="members")
     student = relationship("Student")
+
+
+class GradingTask(Base):
+    """异步批改任务"""
+    __tablename__ = "grading_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    submission_id = Column(Integer, ForeignKey("homework_submissions.id"), nullable=True)
+    task_type = Column(String(20), default="homework")  # homework / exam
+    status = Column(String(20), default="pending")  # pending / processing / done / error
+    result_json = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
