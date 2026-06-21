@@ -11,14 +11,29 @@ export default function ExamPage() {
   const [loading, setLoading] = useState(false);
   const [examId, setExamId] = useState<number | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [pollStatus, setPollStatus] = useState("");
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
   const headers = { Authorization: `Bearer ${token}` };
 
+  const pollWithTimeout = async (url: string, maxSec = 180, intervalMs = 3000) => {
+    const maxAttempts = Math.floor((maxSec * 1000) / intervalMs);
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, intervalMs));
+      setPollStatus(`正在处理... ${Math.round((i * intervalMs) / 1000)}s`);
+      const res = await axios.get(url, { headers, timeout: 10000 });
+      if (res.data.status === "done") return res.data;
+      if (res.data.status === "error") throw new Error(res.data.error || "处理失败");
+    }
+    throw new Error("处理超时，请稍后重试");
+  };
+
   const handleGenerate = async () => {
     setLoading(true);
+    setErrorMsg("");
+    setPollStatus("");
     try {
-      // 1. 触发后台出题（立即返回 task_id + exam_id）
       const res = await axios.post(`/api/exam/generate`, {
         knowledge_points: config.knowledgePoints ? config.knowledgePoints.split(/[,，]/).map(s => s.trim()) : [],
         difficulty: config.difficulty, question_count: config.questionCount,
@@ -26,65 +41,38 @@ export default function ExamPage() {
       const eid = res.data.exam_id;
       setExamId(eid);
 
-      // 2. 轮询等待试卷生成完成
-      let attempts = 0;
-      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        attempts++;
-        const statusRes = await axios.get(`/api/exam/generate/${eid}/status`, { headers, timeout: 10000 });
-        if (statusRes.data.status === "done") {
-          const qs = statusRes.data.questions || [];
-          setQuestions(qs);
-          setAnswers(new Array(qs.length).fill(""));
-          setStep("taking");
-          setLoading(false);
-          return;
-        }
-        if (statusRes.data.status === "error") {
-          alert("出题失败：" + (statusRes.data.error || "未知错误"));
-          setLoading(false);
-          return;
-        }
-        // 每 15 秒更新一下状态提示
-        if (attempts % 5 === 0) {
-          setLoading(true); // 保持 loading
-        }
-      }
-      alert("出题超时，请稍后重试");
-    } catch (e: any) { alert("出题失败：" + (e.response?.data?.detail || e.message)); } finally { setLoading(false); }
+      const data = await pollWithTimeout(`/api/exam/generate/${eid}/status`);
+      const qs = data.questions || [];
+      setQuestions(qs);
+      setAnswers(new Array(qs.length).fill(""));
+      setStep("taking");
+    } catch (e: any) {
+      setErrorMsg(e.response?.data?.detail || e.message || "出题失败");
+    } finally {
+      setLoading(false);
+      setPollStatus("");
+    }
   };
 
   const handleSubmit = async () => {
     setLoading(true);
+    setErrorMsg("");
+    setPollStatus("");
     try {
-      // 提交答卷（立即返回）
       await axios.post(`/api/exam/${examId}/submit`, {
         answers: answers.map((a, i) => ({ question_index: i, answer: a })),
       }, { headers, timeout: 30000 });
 
-      // 轮询等待批改完成
-      let attempts = 0;
-      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        attempts++;
-        const statusRes = await axios.get(`/api/exam/${examId}/status`, { headers, timeout: 10000 });
-        if (statusRes.data.status === "done") {
-          setResult(statusRes.data);
-          setStep("grading");
-          setLoading(false);
-          return;
-        }
-        if (statusRes.data.status === "error") {
-          alert("批改失败：" + (statusRes.data.error || "未知错误"));
-          setLoading(false);
-          return;
-        }
-      }
-      alert("批改超时，请稍后在诊断报告页面查看结果");
+      const data = await pollWithTimeout(`/api/exam/${examId}/status`);
+      setResult(data);
       setStep("grading");
-    } catch (e: any) { alert("提交失败：" + (e.response?.data?.detail || e.message)); } finally { setLoading(false); }
+    } catch (e: any) {
+      setErrorMsg(e.response?.data?.detail || e.message || "提交失败");
+      setStep("grading");
+    } finally {
+      setLoading(false);
+      setPollStatus("");
+    }
   };
 
   return (
@@ -98,8 +86,9 @@ export default function ExamPage() {
               <div><label className="block text-sm font-medium mb-1">薄弱知识点</label><input className="input" placeholder="一元二次方程,相似三角形" value={config.knowledgePoints} onChange={e => setConfig({...config, knowledgePoints: e.target.value})} /></div>
               <div><label className="block text-sm font-medium mb-1">难度：{config.difficulty}/5</label><input type="range" min="1" max="5" value={config.difficulty} onChange={e => setConfig({...config, difficulty: +e.target.value})} className="w-full" /></div>
               <div><label className="block text-sm font-medium mb-1">题目：{config.questionCount}</label><input type="range" min="1" max="30" value={config.questionCount} onChange={e => setConfig({...config, questionCount: +e.target.value})} className="w-full" /></div>
-              <button onClick={handleGenerate} disabled={loading} className="btn-primary w-full py-3">{loading ? "出题中..." : "🚀 生成试卷"}</button>
+              <button onClick={handleGenerate} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "出题中..."}` : "🚀 生成试卷"}</button>
             </div>
+            {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">⚠️ {errorMsg}</div>}
           </div>
         )}
         {step === "taking" && (
@@ -117,7 +106,8 @@ export default function ExamPage() {
                 </div>
               </div>
             ))}
-            <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">{loading ? "🤖 AI 批改中，请耐心等待..." : "✅ 提交答卷"}</button>
+            <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "AI 批改中..."}` : "✅ 提交答卷"}</button>
+          {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">⚠️ {errorMsg}</div>}
           </div>
         )}
         {step === "grading" && result && (
