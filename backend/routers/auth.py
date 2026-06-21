@@ -10,6 +10,7 @@ from models import Student, Teacher, ActivityLog
 from schemas import (
     StudentRegister, StudentLogin, StudentSetPassword, TeacherLogin, TeacherRegister, TokenResponse,
 )
+from utils.auth import require_teacher
 from config import settings
 from passlib.context import CryptContext
 
