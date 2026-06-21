@@ -135,3 +135,4 @@ math-teaching-agent/
 - Coze API 调用需要有效的 Personal Access Token
 - 首次启动会自动创建 SQLite 数据库和所有数据表
 - 生产环境建议使用 PostgreSQL/MySQL 替换 SQLite
+# Build timestamp: 20260621082522
