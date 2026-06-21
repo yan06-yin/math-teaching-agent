@@ -16,8 +16,20 @@ from services.agnes_service import agences_service
 from utils.knowledge_mapper import normalize_knowledge_point
 
 logger = logging.getLogger(__name__)
-UPLOAD_DIR = Path(settings.UPLOAD_DIR)
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_upload_dir():
+    """确保上传目录存在（惰性初始化，避免 import 时权限问题）"""
+    try:
+        Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"无法创建上传目录: {e}")
+        # 尝试当前目录
+        alt_dir = Path("uploads")
+        alt_dir.mkdir(parents=True, exist_ok=True)
+        if alt_dir.exists():
+            settings.UPLOAD_DIR = str(alt_dir.resolve())
+            logger.info(f"回退到上传目录: {settings.UPLOAD_DIR}")
 
 
 async def process_homework(db: Session, student_id: int, photo_path: str,
@@ -30,10 +42,10 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
     4. 更新错题记录
     """
     # Step 1: 保存照片
+    ensure_upload_dir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"homework_{student_id}_{timestamp}.jpg"
-    dest_path = UPLOAD_DIR / filename
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    dest_path = Path(settings.UPLOAD_DIR) / filename
 
     # 如果是 URL，下载；如果是本地路径，复制
     if photo_path.startswith(("http://", "https://")):
