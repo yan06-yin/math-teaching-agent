@@ -134,7 +134,7 @@ async def generate_invite_code(
     class_id: int,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
-    max_used_count: int = 0,
+    max_used_count: Optional[int] = None,
     expires_in_days: Optional[int] = None,
 ):
     """为班级生成邀请码（max_used_count=0 不限次数，expires_in_days 为空不过期）"""
