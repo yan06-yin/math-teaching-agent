@@ -76,8 +76,8 @@ async def generate_and_save_exam(db: Session, student_id: int,
         raise
 
 
-async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAttempt:
-    """批改考试并生成诊断报告"""
+async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[ExamAttempt, list]:
+    """批改考试并生成诊断报告，返回 (exam, details_list)"""
     exam = db.query(ExamAttempt).get(exam_id)
     exam.student_answers = answers
     db.commit()
@@ -101,9 +101,6 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
         )
 
         exam.score = float(result.get("score", 0))
-
-        # 生成人类可读的诊断报告（非 JSON）
-        comments = result.get("comments", "")
         details = result.get("details", [])
         correct_count = sum(1 for d in details if d.get("correct"))
         wrong_details = [d for d in details if not d.get("correct")]
@@ -114,7 +111,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
             f"得分：{exam.score}分（共{len(details)}题，正确{correct_count}题，错误{len(wrong_details)}题）",
             f"",
             f"📝 教师评语：",
-            f"{comments}",
+            f"{result.get('comments', '')}",
         ]
 
         if wrong_details:
@@ -135,7 +132,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
 
         # 记录错题到 ErrorRecord
         from datetime import datetime, timezone
-        for detail in result.get("details", []):
+        for detail in details:
             if not detail.get("correct", True):
                 kp = normalize_knowledge_point(
                     detail.get("question", "未分类")[:50]
@@ -160,8 +157,8 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
         # 生成学习计划（如果分数<70 并且有错题）
         if exam.score < 70:
             weak_points = []
-            if result.get("details"):
-                weak_points = [d.get("explanation", d.get("question", "未分类")) for d in result["details"] if not d.get("correct", True)]
+            if details:
+                weak_points = [d.get("explanation", d.get("question", "未分类")) for d in details if not d.get("correct", True)]
             if not weak_points:
                 weak_points = ["综合基础"]
             plan = await agences_service.generate_learning_plan(
@@ -173,7 +170,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> ExamAtte
             db.commit()
 
         db.refresh(exam)
-        return exam
+        return exam, details
 
     except Exception as e:
         logger.error(f"考试批改失败: {e}")

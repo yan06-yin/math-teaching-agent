@@ -18,51 +18,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _run_exam_grading_background(db: Session, grading_task_id: int, exam_id: int, answers: list[dict]):
-    """后台执行考试批改"""
+async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answers: list[dict]):
+    """后台执行考试批改（使用独立连接，不依赖请求 session）"""
+    bg_db = SessionLocal()
     try:
-        task = db.query(GradingTask).get(grading_task_id)
+        task = bg_db.query(GradingTask).get(grading_task_id)
         if task:
             task.status = "processing"
-            db.commit()
+            bg_db.commit()
 
-        bg_db = SessionLocal()
-        try:
-            graded = await grade_exam(bg_db, exam_id, answers)
-            if task:
-                task.status = "done"
-                task.result_json = {
-                    "exam_id": graded.id,
-                    "score": graded.score,
-                    "questions": graded.questions_json,
-                    "student_answers": graded.student_answers,
-                    "diagnostic_report": graded.diagnostic_report,
-                    "learning_plan": graded.learning_plan,
-                }
-                bg_db.commit()
-        except Exception as e:
-            bg_db.rollback()
-            if task:
-                task.status = "error"
-                task.error_message = str(e)
-                bg_db.commit()
-        finally:
-            bg_db.close()
-
-        # 同步状态
-        task_refetch = db.query(GradingTask).get(grading_task_id)
-        if task_refetch:
-            task_refetch.status = task.status if task else "error"
-            task_refetch.result_json = task.result_json if task else None
-            task_refetch.error_message = task.error_message if task else None
-            task_refetch.completed_at = datetime.now(timezone.utc)
-            db.commit()
+        graded, details = await grade_exam(bg_db, exam_id, answers)
+        task = bg_db.query(GradingTask).get(grading_task_id)
+        if task:
+            task.status = "done"
+            task.result_json = {
+                "exam_id": graded.id,
+                "score": graded.score,
+                "questions": graded.questions_json,
+                "details": details,
+                "student_answers": graded.student_answers,
+                "diagnostic_report": graded.diagnostic_report,
+                "learning_plan": graded.learning_plan,
+            }
+            task.completed_at = datetime.now(timezone.utc)
+            bg_db.commit()
     except Exception as e:
+        bg_db.rollback()
         logger.error(f"后台考试批改失败: {e}")
+        task = bg_db.query(GradingTask).get(grading_task_id)
         if task:
             task.status = "error"
             task.error_message = str(e)
-            db.commit()
+            bg_db.commit()
+    finally:
+        bg_db.close()
 
 
 @router.post("/generate")
@@ -104,7 +93,7 @@ async def generate_exam(
     db.refresh(exam)
 
     # 后台异步生成试卷
-    asyncio.create_task(_run_exam_generate_background(db, task.id, exam.id, exam_config))
+    asyncio.create_task(_run_exam_generate_background(task.id, exam.id, exam_config))
 
     return {
         "task_id": task.id,
@@ -114,8 +103,8 @@ async def generate_exam(
     }
 
 
-async def _run_exam_generate_background(db: Session, task_id: int, exam_id: int, exam_config: dict):
-    """后台生成试卷"""
+async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config: dict):
+    """后台生成试卷（使用独立 session，不依赖请求 session）"""
     bg_db = SessionLocal()
     try:
         exam = bg_db.query(ExamAttempt).get(exam_id)
@@ -138,15 +127,6 @@ async def _run_exam_generate_background(db: Session, task_id: int, exam_id: int,
         logger.error(f"后台出题失败: {e}")
     finally:
         bg_db.close()
-
-    # 同步主 session
-    task_refetch = db.query(GradingTask).get(task_id)
-    if task_refetch:
-        task_refetch.status = task.status if task else "error"
-        task_refetch.result_json = task.result_json if task else None
-        task_refetch.error_message = task.error_message if task else None
-        task_refetch.completed_at = datetime.now(timezone.utc)
-        db.commit()
 
 
 @router.get("/generate/{exam_id}/status")
@@ -203,7 +183,7 @@ async def submit_exam(
     db.refresh(task)
 
     # 后台异步批改
-    asyncio.create_task(_run_exam_grading_background(SessionLocal(), task.id, exam_id, body.answers))
+    asyncio.create_task(_run_exam_grading_background(task.id, exam_id, body.answers))
 
     return {
         "task_id": task.id,
@@ -229,7 +209,36 @@ async def get_exam_status(
     if not exam:
         raise HTTPException(status_code=404, detail="考试记录不存在")
 
-    # 已有结果
+    # 查找批改任务（优先通过任务判断状态）
+    task = db.query(GradingTask).filter(
+        GradingTask.task_type == "exam_grade",
+        GradingTask.student_id == student_id,
+    ).order_by(GradingTask.created_at.desc()).first()
+
+    if task and task.status == "done":
+        # 同步结果到 exam 记录
+        if task.result_json:
+            exam.score = task.result_json.get("score", exam.score)
+            exam.student_answers = task.result_json.get("student_answers", exam.student_answers)
+            if task.result_json.get("diagnostic_report"):
+                exam.diagnostic_report = task.result_json["diagnostic_report"]
+            if task.result_json.get("learning_plan"):
+                exam.learning_plan = task.result_json["learning_plan"]
+        return {
+            "status": "done",
+            "exam_id": task.result_json.get("exam_id") if task.result_json else exam.id,
+            "score": task.result_json.get("score") if task.result_json else exam.score,
+            "questions": task.result_json.get("questions") if task.result_json else exam.questions_json,
+            "student_answers": task.result_json.get("student_answers") if task.result_json else exam.student_answers,
+            "details": task.result_json.get("details", []) if task.result_json else [],
+            "diagnostic_report": task.result_json.get("diagnostic_report", {}) if task.result_json else {},
+            "learning_plan": task.result_json.get("learning_plan", []) if task.result_json else [],
+            "created_at": exam.created_at.isoformat() if exam.created_at else None,
+        }
+    elif task and task.status == "error":
+        return {"status": "error", "error": task.error_message}
+
+    # 退路：如果已有分数（兼容旧数据），也返回 done
     if exam.score is not None and exam.score > 0:
         return {
             "status": "done",
@@ -237,30 +246,11 @@ async def get_exam_status(
             "score": exam.score,
             "questions": exam.questions_json,
             "student_answers": exam.student_answers,
+            "details": [],
             "diagnostic_report": exam.diagnostic_report or {},
             "learning_plan": exam.learning_plan or [],
             "created_at": exam.created_at.isoformat() if exam.created_at else None,
         }
-
-    # 查找批改任务
-    task = db.query(GradingTask).filter(
-        GradingTask.task_type == "exam_grade",
-        GradingTask.student_id == student_id,
-    ).order_by(GradingTask.created_at.desc()).first()
-
-    if task and task.status == "done":
-        return {
-            "status": "done",
-            "exam_id": task.result_json.get("exam_id") if task.result_json else exam.id,
-            "score": task.result_json.get("score") if task.result_json else None,
-            "questions": task.result_json.get("questions") if task.result_json else exam.questions_json,
-            "student_answers": task.result_json.get("student_answers") if task.result_json else exam.student_answers,
-            "diagnostic_report": task.result_json.get("diagnostic_report", {}) if task.result_json else {},
-            "learning_plan": task.result_json.get("learning_plan", []) if task.result_json else [],
-            "created_at": exam.created_at.isoformat() if exam.created_at else None,
-        }
-    elif task and task.status == "error":
-        return {"status": "error", "error": task.error_message}
 
     return {"status": "grading", "exam_id": exam.id}
 

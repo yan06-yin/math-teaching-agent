@@ -179,7 +179,7 @@ async def admin_delete_class(
     cls = db.query(Class).get(class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-    cls.is_deleted = True
+    db.delete(cls)
     db.commit()
     return {"message": "班级已删除"}
 

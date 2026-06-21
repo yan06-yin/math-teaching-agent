@@ -18,13 +18,35 @@ export default function ExamPage() {
   const handleGenerate = async () => {
     setLoading(true);
     try {
+      // 1. 触发后台出题（立即返回 task_id + exam_id）
       const res = await axios.post(`/api/exam/generate`, {
         knowledge_points: config.knowledgePoints ? config.knowledgePoints.split(/[,，]/).map(s => s.trim()) : [],
         difficulty: config.difficulty, question_count: config.questionCount,
-      }, { headers, timeout: 180000 });
-      setQuestions(res.data.questions || []);
-      setAnswers(new Array((res.data.questions || []).length).fill(""));
-      setExamId(res.data.id); setStep("taking");
+      }, { headers, timeout: 30000 });
+      const eid = res.data.exam_id;
+      setExamId(eid);
+
+      // 2. 轮询等待试卷生成完成
+      let attempts = 0;
+      const maxAttempts = 36; // 最多等 3 分钟
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        attempts++;
+        const statusRes = await axios.get(`/api/exam/generate/${eid}/status`, { headers, timeout: 10000 });
+        if (statusRes.data.status === "done") {
+          setQuestions(statusRes.data.questions || []);
+          setAnswers(new Array((statusRes.data.questions || []).length).fill(""));
+          setStep("taking");
+          setLoading(false);
+          return;
+        }
+        if (statusRes.data.status === "error") {
+          alert("出题失败：" + (statusRes.data.error || "未知错误"));
+          setLoading(false);
+          return;
+        }
+      }
+      alert("出题超时，请稍后重试");
     } catch (e: any) { alert("出题失败：" + (e.response?.data?.detail || e.message)); } finally { setLoading(false); }
   };
 
@@ -91,10 +113,13 @@ export default function ExamPage() {
         {step === "grading" && result && (
           <div className="space-y-6">
             <div className="card text-center"><div className="text-6xl font-bold text-[#6366f1] my-4">{result.score ?? "—"}</div></div>
-            {result.questions?.map((q: any, i: number) => (
-              <div key={i} className="card border-l-4 border-l-green-500">
+            {result.questions?.map((q: any, i: number) => {
+              const detail = result.details?.[i];
+              const isCorrect = detail ? detail.correct : false;
+              return (
+              <div key={i} className={`card border-l-4 ${isCorrect ? 'border-l-green-500' : 'border-l-red-400'}`}>
                 <div className="flex items-start gap-3">
-                  <span className="text-xl">{(result.student_answers?.[i]?.answer || "").trim() ? "✅" : "❌"}</span>
+                  <span className="text-xl">{isCorrect ? "✅" : "❌"}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-2">{q.question}</p>
                     {q.image_url && <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
@@ -106,7 +131,8 @@ export default function ExamPage() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
             <div className="flex gap-3"><Link href="/student/report" className="btn-primary flex-1 text-center py-3">📊 查看诊断报告</Link><Link href="/student/dashboard" className="btn-secondary flex-1 text-center py-3">返回主页</Link></div>
           </div>
         )}
