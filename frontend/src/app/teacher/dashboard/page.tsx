@@ -334,7 +334,7 @@ export default function TeacherDashboard() {
                             <span className={`font-bold ${c.is_active ? 'text-green-800' : 'text-gray-400'}`}>{c.code}</span>
                             {c.is_active && (
                               <button className="text-xs text-gray-400 hover:text-indigo-600"
-                                onClick={() => navigator.clipboard.writeText(c.code).then(() => toast("已复制", "info")))}>
+                                onClick={() => navigator.clipboard.writeText(c.code).then(() => { toast("已复制", "info"); })}>
                                 📋
                               </button>
                             )}
