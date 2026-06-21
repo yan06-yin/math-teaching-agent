@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 
 from config import settings
 from database import init_db
-from routers import auth, homework, exam, analysis, teacher, coze_plugin, assignments
+from routers import auth, homework, exam, analysis, teacher, coze_plugin, assignments, classes, admin
 
 
 @asynccontextmanager
@@ -53,6 +53,8 @@ app.include_router(exam.router, prefix="/api/exam", tags=["考试"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["分析"])
 app.include_router(teacher.router, prefix="/api/teacher", tags=["教师端"])
 app.include_router(assignments.router, prefix="/api", tags=["作业发布"])
+app.include_router(classes.router, prefix="/api/classes", tags=["班级管理"])
+app.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
 
 
 @app.get("/api/health")

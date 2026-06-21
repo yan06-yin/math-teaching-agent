@@ -7,7 +7,7 @@ const API_BASE = typeof window !== "undefined" ? (localStorage.getItem("apiBase"
 
 export default function LoginPage() {
   const router = useRouter();
-  const [userType, setUserType] = useState<"student" | "teacher">("student");
+  const [userType, setUserType] = useState<"student" | "teacher" | "admin">("student");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [studentId, setStudentId] = useState("");
@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [level, setLevel] = useState("初中");
   const [school, setSchool] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,10 +35,17 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      if (userType === "student") {
+      if (userType === "admin") {
+        // 管理员登录
+        const res = await axios.post(api("/auth/teacher/login"), { username, password }, { timeout: 10000 });
+        localStorage.setItem("token", res.data.access_token);
+        localStorage.setItem("userName", "管理员");
+        localStorage.setItem("userType", "admin");
+        router.push("/admin/dashboard");
+      } else if (userType === "student") {
         const url = mode === "register" ? api("/auth/register") : api("/auth/login");
         const payload = mode === "register"
-          ? { name, student_id: studentId, password, school_level: level }
+          ? { name, student_id: studentId, password, school_level: level, invite_code: inviteCode || undefined }
           : { student_id: studentId, name, password };
         const res = await axios.post(url, payload, { timeout: 10000 });
         localStorage.setItem("token", res.data.access_token);
@@ -74,15 +82,23 @@ export default function LoginPage() {
           <p className="text-gray-500 mt-2">基于 AI 的智能数学辅导系统</p>
         </div>
         <div className="flex gap-2 mb-4 p-1 bg-gray-100 rounded-lg">
-          <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${userType === "student" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setUserType("student"); setMode("login"); setError(""); }}>学生端</button>
-          <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${userType === "teacher" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setUserType("teacher"); setMode("login"); setError(""); }}>教师端</button>
+          <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${userType === "student" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setUserType("student"); setMode("login"); setError(""); }}>学生</button>
+          <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${userType === "teacher" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setUserType("teacher"); setMode("login"); setError(""); }}>教师</button>
+          <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${userType === "admin" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setUserType("admin"); setMode("login"); setError(""); }}>管理</button>
         </div>
+        {userType !== "admin" && (
         <div className="flex gap-2 mb-6 p-1 bg-gray-100 rounded-lg">
           <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${mode === "login" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setMode("login"); setError(""); }}>登录</button>
           <button className={`flex-1 py-2 rounded-md text-sm font-medium transition ${mode === "register" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`} onClick={() => { setMode("register"); setError(""); }}>注册</button>
         </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {userType === "student" ? (
+          {userType === "admin" ? (
+            <>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">管理员用户名</label><input type="text" className="input" placeholder="admin" value={username} onChange={e => setUsername(e.target.value)} required /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">密码</label><input type="password" className="input" placeholder="请输入管理员密码" value={password} onChange={e => setPassword(e.target.value)} required /></div>
+            </>
+          ) : userType === "student" ? (
             <>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">姓名</label><input type="text" className="input" placeholder="请输入姓名" value={name} onChange={e => setName(e.target.value)} required /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">学号</label><input type="text" className="input" placeholder="请输入学号" value={studentId} onChange={e => setStudentId(e.target.value)} required /></div>
@@ -91,6 +107,7 @@ export default function LoginPage() {
                 <>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">确认密码</label><input type="password" className="input" placeholder="再次输入密码" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">学段</label><select className="input" value={level} onChange={e => setLevel(e.target.value)}><option value="小学">小学</option><option value="初中">初中</option><option value="高中">高中</option></select></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">邀请码（可选）</label><input type="text" className="input" placeholder="有班级邀请码可填写" value={inviteCode} onChange={e => setInviteCode(e.target.value)} /></div>
                 </>
               )}
             </>

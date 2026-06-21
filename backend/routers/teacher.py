@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
-from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission
+from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission, Class, ClassStudent
 from utils.auth import require_teacher
 from utils.knowledge_mapper import normalize_knowledge_point
 
@@ -109,9 +109,36 @@ async def get_knowledge_point_errors(
 async def get_all_students(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
+    class_id: int = Query(None, ge=1),
 ):
-    """教师查看所有学生信息（无论是否参加过考试）"""
-    students = db.query(Student).order_by(Student.created_at.desc()).all()
+    """教师查看所管理班级的学生（可指定 class_id 筛选）"""
+    teacher = current_user[0]
+
+    # 获取该教师的所有班级 ID
+    teacher_class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher.id).all()]
+
+    # 获取该教师班级内的所有学生 ID
+    student_ids = (
+        db.query(ClassStudent.student_id)
+        .filter(ClassStudent.class_id.in_(teacher_class_ids))
+        .subquery()
+    )
+
+    # 查询学生（可进一步按 class_id 筛选）
+    query = db.query(Student).filter(Student.id.in_(student_ids))
+    if class_id:
+        # 验证该班级属于当前教师
+        cls = db.query(Class).filter(Class.id == class_id, Class.teacher_id == teacher.id).first()
+        if not cls:
+            raise HTTPException(status_code=404, detail="班级不存在")
+        cs_student_ids = (
+            db.query(ClassStudent.student_id)
+            .filter(ClassStudent.class_id == class_id)
+            .subquery()
+        )
+        query = db.query(Student).filter(Student.id.in_(cs_student_ids))
+
+    students = query.order_by(Student.created_at.desc()).all()
     result = []
     for s in students:
         # 作业统计
@@ -205,27 +232,48 @@ async def get_teacher_dashboard(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师仪表盘总览"""
-    total_students = db.query(func.count(Student.id)).scalar() or 0
-    total_homework = db.query(func.count(HomeworkSubmission.id)).scalar() or 0
-    total_exams = db.query(func.count(ExamAttempt.id)).scalar() or 0
+    """教师仪表盘总览（仅统计自己班级的学生）"""
+    teacher = current_user[0]
+    teacher_class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher.id).all()]
+    student_ids = (
+        db.query(ClassStudent.student_id)
+        .filter(ClassStudent.class_id.in_(teacher_class_ids))
+        .subquery()
+    ) if teacher_class_ids else None
+
+    total_students = db.query(func.count(Student.id)).filter(
+        Student.id.in_(student_ids)
+    ).scalar() or 0 if student_ids else 0
+
+    total_homework = db.query(func.count(HomeworkSubmission.id)).filter(
+        HomeworkSubmission.student_id.in_(student_ids)
+    ).scalar() or 0 if student_ids else 0
+
+    total_exams = db.query(func.count(ExamAttempt.id)).filter(
+        ExamAttempt.student_id.in_(student_ids)
+    ).scalar() or 0 if student_ids else 0
 
     # 班级平均分
-    avg_hw = db.query(func.avg(HomeworkSubmission.score)).scalar() or 0
-    avg_exam = db.query(func.avg(ExamAttempt.score)).scalar() or 0
+    avg_hw = db.query(func.avg(HomeworkSubmission.score)).filter(
+        HomeworkSubmission.student_id.in_(student_ids)
+    ).scalar() or 0 if student_ids else 0
+    avg_exam = db.query(func.avg(ExamAttempt.score)).filter(
+        ExamAttempt.student_id.in_(student_ids)
+    ).scalar() or 0 if student_ids else 0
     class_avg = float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0)
 
-    # 知识点薄弱热力图
+    # 知识点薄弱热力图（仅自己班级学生）
     errors = (
         db.query(
             ErrorRecord.knowledge_point,
             func.sum(ErrorRecord.error_count).label("total"),
             func.count(func.distinct(ErrorRecord.student_id)).label("students"),
         )
+        .filter(ErrorRecord.student_id.in_(student_ids))
         .group_by(ErrorRecord.knowledge_point)
         .order_by(func.sum(ErrorRecord.error_count).desc())
         .all()
-    )
+    ) if student_ids else []
 
     heatmap = [
         {

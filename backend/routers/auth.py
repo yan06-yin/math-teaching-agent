@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Student, Teacher, ActivityLog
+from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class
 from schemas import (
     StudentRegister, StudentLogin, StudentSetPassword, TeacherLogin, TeacherRegister, TokenResponse,
 )
@@ -30,7 +30,7 @@ def create_access_token(data: dict) -> str:
 
 @router.post("/register", response_model=TokenResponse)
 async def register(body: StudentRegister, db: Session = Depends(get_db)):
-    """学生注册（姓名+学号+密码）"""
+    """学生注册（姓名+学号+密码+可选邀请码）"""
     existing = db.query(Student).filter(Student.student_id == body.student_id).first()
     if existing:
         raise HTTPException(status_code=400, detail="该学号已被注册")
@@ -43,6 +43,29 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
         role="student",
     )
     db.add(student)
+    db.flush()  # 获取 student.id
+
+    # 处理邀请码：如果有则自动加入班级
+    if body.invite_code:
+        invite = db.query(InviteCode).filter(
+            InviteCode.code == body.invite_code,
+            InviteCode.is_active == True,
+        ).first()
+        if not invite:
+            raise HTTPException(status_code=400, detail="邀请码无效")
+        if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="邀请码已过期")
+        if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
+            raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+
+        cs = ClassStudent(
+            student_id=student.id,
+            class_id=invite.class_id,
+            joined_via="invite",
+        )
+        db.add(cs)
+        invite.used_count += 1
+
     db.commit()
     db.refresh(student)
 

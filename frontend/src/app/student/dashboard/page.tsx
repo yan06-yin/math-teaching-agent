@@ -10,6 +10,11 @@ export default function StudentDashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [trends, setTrends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [myClass, setMyClass] = useState<any>(null);
+  const [inviteCode, setInviteCode] = useState("");
+  const [joinLoading, setJoinLoading] = useState(false);
+
+  const headers = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}` });
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -18,15 +23,30 @@ export default function StudentDashboard() {
     if (!sid) return;
     (async () => {
       try {
-        const [pr, tr] = await Promise.all([
-          axios.get(`/api/analysis/student/${sid}`, { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get(`/api/analysis/class/${sid}/trends`, { headers: { Authorization: `Bearer ${token}` } }),
+        const [pr, tr, cls] = await Promise.all([
+          axios.get(`/api/analysis/student/${sid}`, { headers: headers() }),
+          axios.get(`/api/analysis/class/${sid}/trends`, { headers: headers() }),
+          axios.get(`/api/classes/my`, { headers: headers() }).catch(() => null),
         ]);
         setProfile(pr.data);
         setTrends(tr.data);
+        if (cls?.data) setMyClass(cls.data);
       } catch {} finally { setLoading(false); }
     })();
   }, [router]);
+
+  const handleJoin = async () => {
+    if (!inviteCode.trim()) return;
+    setJoinLoading(true);
+    try {
+      const r = await axios.post("/api/classes/join", { code: inviteCode.trim() }, { headers: headers() });
+      setMyClass({ class_id: r.data.class_id, class_name: r.data.class_name });
+      setInviteCode("");
+      alert(`成功加入班级 ${r.data.class_name}`);
+    } catch (e: any) {
+      alert("加入失败：" + (e.response?.data?.detail || e.message));
+    } finally { setJoinLoading(false); }
+  };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner"></div></div>;
 
@@ -43,6 +63,26 @@ export default function StudentDashboard() {
       </nav>
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-8"><h2 className="text-2xl font-bold text-gray-900">你好，{un} 👋</h2><p className="text-gray-500 mt-1">今天也要加油学习哦！</p></div>
+
+        {/* 班级信息 / 加入班级 */}
+        {myClass ? (
+          <div className="card mb-6 flex items-center gap-2">
+            <span>🏫</span>
+            <span className="font-medium">{myClass.class_name}</span>
+            <span className="text-xs text-gray-400 ml-1">({myClass.school_level})</span>
+            <span className="text-xs text-gray-400 ml-4">教师：{myClass.teacher_name}</span>
+          </div>
+        ) : (
+          <div className="card mb-6">
+            <div className="flex items-center gap-3">
+              <span className="text-lg">🏫</span>
+              <span className="font-medium">加入班级</span>
+              <input className="input flex-1 max-w-xs" placeholder="输入邀请码" value={inviteCode} onChange={e => setInviteCode(e.target.value)} />
+              <button onClick={handleJoin} disabled={joinLoading || !inviteCode.trim()} className="btn-primary text-sm">{joinLoading ? "加入中..." : "立即加入"}</button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Link href="/student/assignments" className="card hover:shadow-md block"><div className="text-3xl mb-2">📋</div><div className="font-medium">教师作业</div><div className="text-sm text-gray-500">查看和提交作业</div></Link>
           <Link href="/student/upload" className="card hover:shadow-md block"><div className="text-3xl mb-2">📸</div><div className="font-medium">拍照批改</div><div className="text-sm text-gray-500">上传作业自动批改</div></Link>

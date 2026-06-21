@@ -66,3 +66,11 @@ def require_teacher(current_user=Depends(get_current_user)):
     if user_type != "teacher":
         raise HTTPException(status_code=403, detail="需要教师身份")
     return user, user_type
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    """依赖注入：仅允许管理员访问"""
+    user, user_type = current_user
+    if user_type != "teacher" or not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user, user_type

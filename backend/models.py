@@ -3,7 +3,7 @@ SQLAlchemy ORM 数据模型
 """
 from sqlalchemy import (
     Column, Integer, String, Float, Text, DateTime, ForeignKey, JSON,
-    Index, func
+    Index, func, Boolean
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -35,6 +35,7 @@ class Teacher(Base):
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(128), nullable=False)
     school = Column(String(100), default="")
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
 
@@ -150,6 +151,7 @@ class Assignment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)  # NULL=广播
     title = Column(String(200), nullable=False)
     description = Column(Text, default="")
     questions_json = Column(JSON, default=list)
@@ -168,3 +170,48 @@ class AssignmentSubmission(Base):
     score = Column(Float, default=0)
     status = Column(String(20), default="submitted")
     submitted_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class Class(Base):
+    """班级"""
+    __tablename__ = "classes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    school_level = Column(String(10), nullable=False)  # 小学/初中/高中
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    teacher = relationship("Teacher")
+    members = relationship("ClassStudent", back_populates="class_", cascade="all, delete-orphan")
+    invite_codes = relationship("InviteCode", back_populates="class_", cascade="all, delete-orphan")
+
+
+class InviteCode(Base):
+    """邀请码"""
+    __tablename__ = "invite_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(20), unique=True, nullable=False, index=True)
+    max_used_count = Column(Integer, default=0)  # 0=不限
+    used_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=True)  # NULL=永不过期
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    class_ = relationship("Class", back_populates="invite_codes")
+
+
+class ClassStudent(Base):
+    """班级-学生关联"""
+    __tablename__ = "class_students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), unique=True, nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    joined_via = Column(String(20), default="invite")  # invite / manual
+    joined_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    class_ = relationship("Class", back_populates="members")
+    student = relationship("Student")

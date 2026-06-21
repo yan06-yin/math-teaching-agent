@@ -12,6 +12,7 @@ class StudentRegister(BaseModel):
     student_id: str = Field(..., min_length=1, max_length=30)
     password: str = Field(..., min_length=6, max_length=128)
     school_level: str = Field(..., pattern="^(小学|初中|高中)$")
+    invite_code: Optional[str] = Field(default=None, max_length=20)
 
 
 class StudentLogin(BaseModel):
@@ -110,3 +111,75 @@ class TeacherDashboard(BaseModel):
     class_avg_score: float
     knowledge_heatmap: list[dict]  # [{point, error_rate}]
     top_error_students: list[dict]
+
+
+# ===== 班级 =====
+class ClassCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    school_level: str = Field(..., pattern="^(小学|初中|高中)$")
+
+
+class ClassInfo(BaseModel):
+    id: int
+    name: str
+    teacher_id: int
+    school_level: str
+    student_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InviteCodeGenerate(BaseModel):
+    max_used_count: int = Field(default=0, ge=0)
+    expires_in_days: Optional[int] = Field(default=None, ge=1)
+
+
+class InviteCodeInfo(BaseModel):
+    id: int
+    code: str
+    max_used_count: int
+    used_count: int
+    is_active: bool
+    expires_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class JoinClass(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+
+
+class AssignStudent(BaseModel):
+    student_id: int
+
+
+class AdminAssignStudent(BaseModel):
+    student_id: int
+    class_id: int
+
+
+class StudentInClass(BaseModel):
+    id: int
+    name: str
+    student_id: str
+    school_level: str
+    joined_via: str
+    joined_at: Optional[datetime]
+    last_login: Optional[datetime]
+
+
+class TeacherInfo(BaseModel):
+    id: int
+    name: str
+    username: str
+    school: str
+    is_admin: bool
+    class_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
