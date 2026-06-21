@@ -134,10 +134,8 @@ async def generate_invite_code(
     class_id: int,
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
-    max_used_count: Optional[int] = None,
-    expires_in_days: Optional[int] = None,
 ):
-    """为班级生成邀请码（max_used_count=0 不限次数，expires_in_days 为空不过期）"""
+    """为班级生成邀请码"""
     teacher = current_user[0]
     cls = db.query(Class).filter(Class.id == class_id, Class.teacher_id == teacher.id).first()
     if not cls:
@@ -153,11 +151,8 @@ async def generate_invite_code(
     invite = InviteCode(
         class_id=class_id,
         code=code,
-        max_used_count=max_used_count,
-        expires_at=(
-            datetime.now(timezone.utc) + timedelta(days=expires_in_days)
-            if expires_in_days else None
-        ),
+        max_used_count=0,
+        expires_at=None,
     )
     db.add(invite)
     db.commit()
