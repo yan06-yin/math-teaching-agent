@@ -1,11 +1,15 @@
 "use client";
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { useToast } from "@/app/toast";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from "recharts";
+import { TableSkeleton, CardSkeleton } from "@/app/skeleton";
 import Link from "next/link";
 
 type Tab = "overview" | "teachers" | "classes" | "students" | "assignments" | "exams" | "ai";
 
 export default function AdminDashboard() {
+  const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("overview");
   const [data, setData] = useState<any>(null);
   const [teachers, setTeachers] = useState<any[]>([]);
@@ -46,19 +50,19 @@ export default function AdminDashboard() {
   };
 
   const handleSaveAiProvider = async () => {
-    if (!aiForm.name || !aiForm.base_url || !aiForm.api_key || !aiForm.model) return alert("请填写完整");
+    if (!aiForm.name || !aiForm.base_url || !aiForm.api_key || !aiForm.model) return toast("请填写完整");
     try {
       await axios.post("/api/admin/ai-providers", aiForm, { headers: headers() });
       setShowAddAi(false); setAiForm({ name: "", base_url: "", api_key: "", model: "", is_active: false });
       loadAiProviders();
-    } catch (e: any) { alert("保存失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("保存失败：", "error"); }
   };
 
   const handleActivateAi = async (id: number) => {
     try {
       await axios.put(`/api/admin/ai-providers/${id}`, { is_active: true }, { headers: headers() });
       loadAiProviders();
-    } catch (e: any) { alert("切换失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("切换失败：", "error"); }
   };
 
   const handleDeleteAi = async (id: number) => {
@@ -66,7 +70,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/ai-providers/${id}`, { headers: headers() });
       loadAiProviders();
-    } catch (e: any) { alert("删除失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("删除失败：", "error"); }
   };
 
   const handleDeleteTeacher = async (id: number, name: string) => {
@@ -74,7 +78,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/teachers/${id}`, { headers: headers() });
       setTeachers(prev => prev.filter(t => t.id !== id));
-    } catch (e: any) { alert("删除失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("删除失败：", "error"); }
   };
 
   const handleDeleteClass = async (id: number) => {
@@ -82,7 +86,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/classes/${id}`, { headers: headers() });
       loadAll();
-    } catch (e: any) { alert("删除失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("删除失败：", "error"); }
   };
 
   const handleAssignStudent = async (studentId: number) => {
@@ -91,7 +95,7 @@ export default function AdminDashboard() {
     try {
       await axios.post("/api/admin/students/assign", { student_id: studentId, class_id: parseInt(classId) }, { headers: headers() });
       loadAll();
-    } catch (e: any) { alert("分配失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("分配失败：", "error"); }
   };
 
   const handleRemoveClass = async (studentId: number, name: string) => {
@@ -99,7 +103,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/students/${studentId}/class`, { headers: headers() });
       setStudents(prev => prev.map(s => s.id === studentId ? { ...s, class_name: null } : s));
-    } catch (e: any) { alert("操作失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("操作失败：", "error"); }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner spinner-lg"></div></div>;

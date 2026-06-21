@@ -3,9 +3,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import axios from "axios";
+import { useToast } from "@/app/toast";
+import { TableSkeleton, CardSkeleton } from "@/app/skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function StudentDashboard() {
+  const { toast } = useToast();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [trends, setTrends] = useState<any[]>([]);
@@ -41,7 +44,7 @@ export default function StudentDashboard() {
       const r = await axios.post("/api/classes/join", { code: inviteCode.trim() }, { headers: headers() });
       setMyClass({ class_id: r.data.class_id, class_name: r.data.class_name });
       setInviteCode("");
-    } catch (e: any) { alert("加入失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("加入失败：", "error"); }
     finally { setJoinLoading(false); }
   };
 

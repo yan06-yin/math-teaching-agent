@@ -3,10 +3,13 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { useToast } from "@/app/toast";
+import { TableSkeleton, CardSkeleton } from "@/app/skeleton";
 
 type Tab = "overview" | "errors" | "students" | "student" | "kp" | "classes";
 
 export default function TeacherDashboard() {
+  const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("overview");
   const [data, setData] = useState<any>(null);
   const [errors, setErrors] = useState<any[]>([]);
@@ -35,7 +38,7 @@ export default function TeacherDashboard() {
       localStorage.clear();
       window.location.href = "/";
     } catch (e: any) {
-      alert("删除失败：" + (e.response?.data?.detail || e.message));
+      toast("删除失败：" + (e.response?.data?.detail || e.message), "error");
     } finally { setDeletingSelf(false); }
   };
 
@@ -64,7 +67,7 @@ export default function TeacherDashboard() {
     try {
       await axios.delete(`/api/teacher/students/${id}`, { headers: headers() });
       setStudentList(prev => prev.filter(s => s.id !== id));
-    } catch (e: any) { alert("删除失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("删除失败：", "error"); }
     finally { setDeletingId(null); }
   };
 
@@ -83,23 +86,23 @@ export default function TeacherDashboard() {
     try {
       await axios.post("/api/classes", { name: newClassName, school_level: newClassLevel }, { headers: headers() });
       setNewClassName(""); setShowCreateClass(false); loadClasses();
-    } catch (e: any) { alert("创建失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("创建失败：", "error"); }
   };
   const handleGenerateCode = async (classId: number) => {
     try { const r = await axios.post(`/api/classes/${classId}/invite-codes`, {}, { headers: headers() }); setInviteCodes(prev => [r.data, ...prev]); }
-    catch (e: any) { alert("生成失败：" + (e.response?.data?.detail || e.message)); }
+    catch (e: any) { toast("生成失败：", "error"); }
   };
   const handleAddStudent = async (classId: number) => {
     if (!addStudentId.trim()) return;
     try {
       await axios.post(`/api/classes/${classId}/students`, { student_id: parseInt(addStudentId) }, { headers: headers() });
       setAddStudentId(""); loadClassDetail(classId);
-    } catch (e: any) { alert("添加失败：" + (e.response?.data?.detail || e.message)); }
+    } catch (e: any) { toast("添加失败：", "error"); }
   };
   const handleRemoveStudent = async (classId: number, studentId: number) => {
     if (!confirm("确定移出该学生？")) return;
     try { await axios.delete(`/api/classes/${classId}/students/${studentId}`, { headers: headers() }); loadClassDetail(classId); }
-    catch (e: any) { alert("操作失败：" + (e.response?.data?.detail || e.message)); }
+    catch (e: any) { toast("操作失败：", "error"); }
   };
   const openClassTab = () => { setTab("classes"); loadClasses(); };
 
@@ -331,7 +334,7 @@ export default function TeacherDashboard() {
                             <span className={`font-bold ${c.is_active ? 'text-green-800' : 'text-gray-400'}`}>{c.code}</span>
                             {c.is_active && (
                               <button className="text-xs text-gray-400 hover:text-indigo-600"
-                                onClick={() => navigator.clipboard.writeText(c.code).then(() => alert("已复制"))}>
+                                onClick={() => navigator.clipboard.writeText(c.code).then(() => toast("已复制", "info")))}>
                                 📋
                               </button>
                             )}

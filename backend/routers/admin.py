@@ -35,6 +35,42 @@ async def admin_dashboard(
     avg_exam = db.query(func.avg(ExamAttempt.score)).scalar() or 0
     avg_score = round(float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0), 1)
 
+    # 每月趋势数据（近6个月）
+    from sqlalchemy import extract
+    from datetime import datetime, timezone, timedelta
+
+    months_data = []
+    now = datetime.now(timezone.utc)
+    for i in range(5, -1, -1):
+        month = now.month - i
+        year = now.year
+        while month < 1:
+            month += 12
+            year -= 1
+        label = f"{year}-{month:02d}"
+
+        hw_in_month = db.query(func.count(HomeworkSubmission.id)).filter(
+            extract("year", HomeworkSubmission.created_at) == year,
+            extract("month", HomeworkSubmission.created_at) == month,
+        ).scalar() or 0
+
+        exam_in_month = db.query(func.count(ExamAttempt.id)).filter(
+            extract("year", ExamAttempt.created_at) == year,
+            extract("month", ExamAttempt.created_at) == month,
+        ).scalar() or 0
+
+        avg_in_month = db.query(func.avg(ExamAttempt.score)).filter(
+            extract("year", ExamAttempt.created_at) == year,
+            extract("month", ExamAttempt.created_at) == month,
+        ).scalar() or 0
+
+        months_data.append({
+            "month": label,
+            "homework": hw_in_month,
+            "exam": exam_in_month,
+            "avg_score": round(float(avg_in_month), 1),
+        })
+
     return {
         "teacher_count": teacher_count,
         "class_count": class_count,
@@ -43,6 +79,7 @@ async def admin_dashboard(
         "homework_count": hw_count,
         "exam_count": exam_count,
         "avg_score": avg_score,
+        "monthly_trends": months_data,
     }
 
 
