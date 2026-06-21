@@ -181,6 +181,9 @@ async def reset_teacher_password(
         token_type="bearer",
         user_type="teacher",
     )
+
+
+@router.post("/set-password")
 async def set_password(
     body: StudentSetPassword,
     student_id: int,
