@@ -2,7 +2,7 @@
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci --legacy-peer-deps --only=production && rm -rf /root/.npm
+RUN npm ci --legacy-peer-deps && rm -rf /root/.npm
 COPY frontend/ .
 RUN rm -rf out .next && NEXT_TELEMETRY_DISABLED=1 npm run build && rm -rf node_modules .next
 
