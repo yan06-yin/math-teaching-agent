@@ -3,11 +3,12 @@ FastAPI 主应用入口
 """
 import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pathlib import Path
 
 # 配置日志
@@ -42,6 +43,17 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+
+# 全局异常处理器 —— 捕获所有未处理的异常并记录详细信息
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logging.error(f"未捕获的异常: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"系统内部错误: {type(exc).__name__}: {str(exc)}"},
+    )
+
 
 # 跨域
 app.add_middleware(

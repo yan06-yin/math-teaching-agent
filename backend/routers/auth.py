@@ -1,8 +1,11 @@
 """
 认证路由 — 学生注册/登录、教师登录/注册
 """
+import logging
+import traceback
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -14,7 +17,35 @@ from utils.auth import require_teacher
 from config import settings
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import hashlib
+import secrets
+
+logger = logging.getLogger(__name__)
+
+# 尝试初始化 bcrypt，如果 C 扩展不可用则回退到纯 Python SHA-256
+try:
+    _test_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _test_ctx.hash("test")
+    pwd_context = _test_ctx
+    logger.info("使用 bcrypt 密码哈希")
+except Exception:
+    logger.warning("bcrypt C 扩展不可用，回退到纯 Python SHA-256")
+
+    class FallbackPwdContext:
+        def hash(self, password: str) -> str:
+            salt = secrets.token_hex(16)
+            h = hashlib.sha256((password + salt).encode()).hexdigest()
+            return f"sha256${salt}${h}"
+        def verify(self, password: str, hashed: str) -> bool:
+            try:
+                parts = hashed.split("$")
+                if len(parts) == 3 and parts[0] == "sha256":
+                    return hashlib.sha256((password + parts[1]).encode()).hexdigest() == parts[2]
+            except Exception:
+                pass
+            return False
+
+    pwd_context = FallbackPwdContext()
 
 router = APIRouter()
 
@@ -31,100 +62,112 @@ def create_access_token(data: dict) -> str:
 @router.post("/register", response_model=TokenResponse)
 async def register(body: StudentRegister, db: Session = Depends(get_db)):
     """学生注册（姓名+学号+密码+可选邀请码）"""
-    existing = db.query(Student).filter(Student.student_id == body.student_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="该学号已被注册")
+    try:
+        existing = db.query(Student).filter(Student.student_id == body.student_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="该学号已被注册")
 
-    student = Student(
-        name=body.name,
-        student_id=body.student_id,
-        password_hash=pwd_context.hash(body.password),
-        school_level=body.school_level,
-        role="student",
-    )
-    db.add(student)
-    db.flush()  # 获取 student.id
-
-    # 处理邀请码：如果有则自动加入班级
-    if body.invite_code:
-        invite = db.query(InviteCode).filter(
-            InviteCode.code == body.invite_code,
-            InviteCode.is_active == True,
-        ).first()
-        if not invite:
-            raise HTTPException(status_code=400, detail="邀请码无效")
-        if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=400, detail="邀请码已过期")
-        if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
-            raise HTTPException(status_code=400, detail="邀请码已达使用上限")
-
-        cs = ClassStudent(
-            student_id=student.id,
-            class_id=invite.class_id,
-            joined_via="invite",
+        student = Student(
+            name=body.name,
+            student_id=body.student_id,
+            password_hash=pwd_context.hash(body.password),
+            school_level=body.school_level,
+            role="student",
         )
-        db.add(cs)
-        invite.used_count += 1
+        db.add(student)
+        db.flush()  # 获取 student.id
 
-    db.commit()
-    db.refresh(student)
+        # 处理邀请码：如果有则自动加入班级
+        if body.invite_code:
+            invite = db.query(InviteCode).filter(
+                InviteCode.code == body.invite_code,
+                InviteCode.is_active == True,
+            ).first()
+            if not invite:
+                raise HTTPException(status_code=400, detail="邀请码无效")
+            if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="邀请码已过期")
+            if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
+                raise HTTPException(status_code=400, detail="邀请码已达使用上限")
 
-    token = create_access_token({"sub": str(student.id), "type": "student"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="student",
-        student_id=student.id,
-    )
+            cs = ClassStudent(
+                student_id=student.id,
+                class_id=invite.class_id,
+                joined_via="invite",
+            )
+            db.add(cs)
+            invite.used_count += 1
+
+        db.commit()
+        db.refresh(student)
+
+        token = create_access_token({"sub": str(student.id), "type": "student"})
+        return TokenResponse(
+            access_token=token,
+            token_type="bearer",
+            user_type="student",
+            student_id=student.id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"注册失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: StudentLogin, db: Session = Depends(get_db)):
     """学生登录（姓名+学号+密码）"""
-    student = db.query(Student).filter(
-        Student.student_id == body.student_id,
-        Student.name == body.name,
-    ).first()
+    try:
+        student = db.query(Student).filter(
+            Student.student_id == body.student_id,
+            Student.name == body.name,
+        ).first()
 
-    if not student:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="学号或姓名不正确",
+        if not student:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="学号或姓名不正确",
+            )
+
+        # 处理旧数据：没有密码的学生需要设置密码
+        if not student.password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="请先设置密码后登录",
+            )
+
+        if not pwd_context.verify(body.password, student.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="密码不正确",
+            )
+
+        # 更新最后登录时间
+        student.last_login = datetime.now(timezone.utc)
+        db.commit()
+
+        # 记录登录活动
+        activity = ActivityLog(
+            student_id=student.id,
+            activity_type="login",
+            detail="学生登录",
         )
+        db.add(activity)
+        db.commit()
 
-    # 处理旧数据：没有密码的学生需要设置密码
-    if not student.password_hash:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="请先设置密码后登录",
+        token = create_access_token({"sub": str(student.id), "type": "student"})
+        return TokenResponse(
+            access_token=token,
+            token_type="bearer",
+            user_type="student",
+            student_id=student.id,
         )
-
-    if not pwd_context.verify(body.password, student.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="密码不正确",
-        )
-
-    # 更新最后登录时间
-    student.last_login = datetime.now(timezone.utc)
-    db.commit()
-
-    # 记录登录活动
-    activity = ActivityLog(
-        student_id=student.id,
-        activity_type="login",
-        detail="学生登录",
-    )
-    db.add(activity)
-    db.commit()
-
-    token = create_access_token({"sub": str(student.id), "type": "student"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="student",
-        student_id=student.id,
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"登录失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
 
 
 @router.post("/student/reset-password", response_model=TokenResponse)
