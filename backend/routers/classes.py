@@ -19,7 +19,7 @@ from utils.auth import require_teacher, require_student
 router = APIRouter()
 
 
-def generate_invite_code(length=8) -> str:
+def _generate_code(length=8) -> str:
     """生成随机邀请码"""
     alphabet = string.ascii_uppercase + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
@@ -143,7 +143,7 @@ async def generate_invite_code(
 
     # 生成唯一邀请码
     while True:
-        code = generate_invite_code()
+        code = _generate_code()
         existing = db.query(InviteCode).filter(InviteCode.code == code).first()
         if not existing:
             break
