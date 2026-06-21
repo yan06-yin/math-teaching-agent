@@ -19,13 +19,24 @@ async def get_error_summary(
     db: Session = Depends(get_db),
     knowledge_point: str = None,
 ):
-    """获取全班错题汇总（按知识点分组），包含最近错题详情"""
+    """获取本班错题汇总（仅自己班级学生）"""
+    teacher = current_user[0]
+
+    # 获取该教师班级内学生 ID
+    teacher_class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher.id).all()]
+    student_ids = [
+        r[0] for r in db.query(ClassStudent.student_id)
+        .filter(ClassStudent.class_id.in_(teacher_class_ids))
+        .all()
+    ] if teacher_class_ids else [-1]
+
     query = (
         db.query(
             ErrorRecord.knowledge_point,
             func.count(func.distinct(ErrorRecord.student_id)).label("affected_students"),
             func.sum(ErrorRecord.error_count).label("total_errors"),
         )
+        .filter(ErrorRecord.student_id.in_(student_ids))
         .group_by(ErrorRecord.knowledge_point)
     )
 
@@ -34,14 +45,16 @@ async def get_error_summary(
 
     results = query.order_by(func.sum(ErrorRecord.error_count).desc()).all()
 
-    total_students = db.query(func.count(Student.id)).scalar() or 1
+    total_students = len(student_ids) if student_ids and student_ids != [-1] else 1
 
     output = []
-    for r in results:
-        # 获取该知识点的最近 5 条错题
+    for r in results:        # 获取该知识点的最近 5 条错题（仅该教师班级内的）
         recent = (
             db.query(ErrorRecord)
-            .filter(ErrorRecord.knowledge_point == r.knowledge_point)
+            .filter(
+                ErrorRecord.knowledge_point == r.knowledge_point,
+                ErrorRecord.student_id.in_(student_ids),
+            )
             .order_by(ErrorRecord.last_error_date.desc())
             .limit(5)
             .all()

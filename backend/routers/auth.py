@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class
+from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class, Assignment, AssignmentSubmission, ErrorRecord, HomeworkSubmission, ExamAttempt
 from schemas import (
     StudentRegister, StudentLogin, StudentSetPassword, TeacherLogin, TeacherRegister, TokenResponse,
 )
@@ -215,11 +215,28 @@ async def delete_teacher(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师删除自己的账号"""
+    """教师删除自己的账号（级联清理班级、作业等数据）"""
     teacher = current_user[0]
+    teacher_id = teacher.id
+
+    # 级联：班级下的学生关联和邀请码
+    class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher_id).all()]
+    if class_ids:
+        db.query(ClassStudent).filter(ClassStudent.class_id.in_(class_ids)).delete(synchronize_session=False)
+        db.query(InviteCode).filter(InviteCode.class_id.in_(class_ids)).delete(synchronize_session=False)
+
+    # 教师发布的作业及提交
+    assignments = db.query(Assignment).filter(Assignment.teacher_id == teacher_id).all()
+    for a in assignments:
+        db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id).delete(synchronize_session=False)
+    db.query(Assignment).filter(Assignment.teacher_id == teacher_id).delete(synchronize_session=False)
+
+    # 班级
+    db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
+
     db.delete(teacher)
     db.commit()
-    return {"message": f"已删除教师 {teacher.name}"}
+    return {"message": f"已删除教师 {teacher.name} 及相关数据"}
 
 
 @router.post("/teacher/login", response_model=TokenResponse)

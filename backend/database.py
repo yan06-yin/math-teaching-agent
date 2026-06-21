@@ -36,12 +36,14 @@ try:
             pool_pre_ping=True,
         )
     elif _db_url.startswith("postgresql") or _db_url.startswith("postgres"):
-        # PostgreSQL
+        # PostgreSQL — 增加连接池以支持多 worker 并发
         engine = create_engine(
             _db_url,
-            pool_size=5,
-            max_overflow=10,
+            pool_size=20,
+            max_overflow=20,
             pool_pre_ping=True,
+            pool_recycle=300,
+            pool_use_lifo=True,
         )
         # 立即测试连接（create_engine 是懒连接，不主动连接不会报错）
         with engine.connect():

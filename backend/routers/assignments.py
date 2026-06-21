@@ -1,13 +1,14 @@
 """
-作业发布路由 — 教师发布作业，学生查看/提交
+作业发布路由 — 教师发布作业（可指定班级），学生查看/提交（只看到自己班级的）
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+from typing import Optional
 
 from database import get_db
-from models import Assignment, AssignmentSubmission, Student
+from models import Assignment, AssignmentSubmission, Student, Class, ClassStudent
 from utils.auth import require_teacher, require_student
 
 router = APIRouter(prefix="/assignments", tags=["作业发布"])
@@ -19,6 +20,7 @@ class AssignmentCreate(BaseModel):
     description: str = ""
     questions: list[dict] = Field(default_factory=list)
     due_date: str = ""
+    class_id: Optional[int] = Field(default=None, ge=1)  # NULL=广播
 
 
 class AssignmentSubmit(BaseModel):
@@ -33,10 +35,16 @@ async def create_assignment(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师发布作业"""
-    teacher_id = current_user[0].id
+    """教师发布作业（可选指定班级，NULL=所有学生可见）"""
+    teacher = current_user[0]
+    if body.class_id:
+        cls = db.query(Class).filter(Class.id == body.class_id, Class.teacher_id == teacher.id).first()
+        if not cls:
+            raise HTTPException(status_code=404, detail="班级不存在或不属于你")
+
     assignment = Assignment(
-        teacher_id=teacher_id,
+        teacher_id=teacher.id,
+        class_id=body.class_id,
         title=body.title,
         description=body.description,
         questions_json=body.questions,
@@ -47,6 +55,7 @@ async def create_assignment(
     return {
         "id": assignment.id,
         "title": assignment.title,
+        "class_id": assignment.class_id,
         "questions_count": len(assignment.questions_json),
         "created_at": assignment.created_at.isoformat(),
     }
@@ -57,7 +66,7 @@ async def list_assignments(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师查看自己发布的所有作业"""
+    """教师查看自己发布的所有作业（含班级信息）"""
     teacher_id = current_user[0].id
     assignments = (
         db.query(Assignment)
@@ -70,10 +79,16 @@ async def list_assignments(
         sub_count = db.query(AssignmentSubmission).filter(
             AssignmentSubmission.assignment_id == a.id
         ).count()
+        class_name = None
+        if a.class_id:
+            cls = db.query(Class).get(a.class_id)
+            class_name = cls.name if cls else None
         result.append({
             "id": a.id,
             "title": a.title,
             "description": a.description,
+            "class_id": a.class_id,
+            "class_name": class_name,
             "questions_count": len(a.questions_json),
             "submissions": sub_count,
             "created_at": a.created_at.isoformat(),
@@ -126,25 +141,36 @@ async def student_assignments(
     current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """学生查看待完成的作业"""
+    """学生查看待完成的作业（仅看自己的班级的或广播作业）"""
     student_id = current_user[0].id
-    assignments = (
-        db.query(Assignment)
-        .order_by(Assignment.created_at.desc())
-        .all()
-    )
+
+    # 获取学生的班级 ID
+    cs = db.query(ClassStudent).filter(ClassStudent.student_id == student_id).first()
+    my_class_id = cs.class_id if cs else None
+
+    query = db.query(Assignment).order_by(Assignment.created_at.desc()).all()
 
     result = []
-    for a in assignments:
-        # 检查是否已提交
+    for a in query:
+        # 筛选：广播(class_id=NULL) 或 同班级 或 同教师的作业(该教师下的班级)
+        if a.class_id is not None and a.class_id != my_class_id:
+            continue
+
         sub = db.query(AssignmentSubmission).filter(
             AssignmentSubmission.assignment_id == a.id,
             AssignmentSubmission.student_id == student_id,
         ).first()
+
+        class_name = None
+        if a.class_id:
+            cls = db.query(Class).get(a.class_id)
+            class_name = cls.name if cls else None
+
         result.append({
             "id": a.id,
             "title": a.title,
             "description": a.description,
+            "class_name": class_name,
             "questions": a.questions_json,
             "submitted": sub is not None,
             "submission": {
