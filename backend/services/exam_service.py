@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from models import ExamAttempt, Student, ErrorRecord
 from services.open_model_service import open_model_service
+from services.image_service import generate_exam_images
 from utils.knowledge_mapper import normalize_knowledge_point
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,8 @@ async def generate_and_save_exam(db: Session, student_id: int,
     根据学生情况出题：
     1. 查询学生薄弱知识点
     2. 调用 AI 出题
-    3. 保存试卷到已有 exam 记录（如果传了 exam_id）
+    3. 并发生成配图（SVG + 真实图片）
+    4. 保存试卷到已有 exam 记录
     """
     # 查询薄弱知识点
     errors = db.query(ErrorRecord).filter(
@@ -47,6 +49,13 @@ async def generate_and_save_exam(db: Session, student_id: int,
         )
 
         questions = result.get("questions", [])
+
+        # 生成配图：调用 Agnes Image API 生成真实图片（不阻塞，失败不影响试卷）
+        if config.get("with_images", True) and questions:
+            try:
+                questions = await generate_exam_images(questions)
+            except Exception as e:
+                logger.warning(f"图片生成失败，但试卷已生成: {e}")
 
         # 如果有 exam_id，更新已有记录；否则新建
         if exam_id:

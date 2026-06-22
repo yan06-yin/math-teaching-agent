@@ -333,7 +333,9 @@ class OpenModelService:
             "explanation": "解析",
         }
         if with_images:
+            # image_svg = AI 内联 SVG，image_prompt = 给图片生成 API 的描述词
             question_example["image_svg"] = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">...</svg>'
+            question_example["image_prompt"] = "A clear geometric diagram showing a right triangle with labeled sides a, b, c"
 
         json_example = json.dumps({
             "title": "数学测试",
@@ -341,13 +343,16 @@ class OpenModelService:
         }, ensure_ascii=False)
 
         image_instruction = """
-- **需要配图的题目**请在 `image_svg` 字段填入 SVG 代码。以下题型应配图：
+- **需要配图的题目**请同时输出两个字段：
+  - `image_svg`: 内联 SVG 代码（几何/函数/统计题必须有）
+  - `image_prompt`: 一段英文描述词，描述这张数学插图的样子，用于 AI 图片模型生成真正的图片
+- 以下题型应配图：
   - 几何题：三角形、圆、坐标系等示意图
   - 函数题：坐标系 + 函数图像（抛物线、直线等）
-  - 统计题：柱状图、折线图（用 SVG rect/polyline 绘制）
+  - 统计题：柱状图、折线图
   - 分数/数轴题：数轴、面积模型图
 - SVG 放在 `<svg>` 标签内，标注 `width="400" height="300"`，用有颜色的图形元素
-- 不需要配图的题（纯代数计算、文字题）不包含 `image_svg` 字段""" if with_images else ""
+- image_prompt 要详细描述视觉元素：颜色、标注、图形形状、坐标轴等""" if with_images else ""
 
         prompt = f"""你是数学教师，请生成 {question_count} 道数学题。
 
@@ -365,7 +370,7 @@ class OpenModelService:
 - 围绕 {points_str} 出题
 """
         messages = [
-            {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。" + (" SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素，清晰可读。" if with_images else "")},
+            {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。" + (" SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素。同时为需要配图的题提供 `image_prompt` 英文描述词。" if with_images else "")},
             {"role": "user", "content": prompt},
         ]
         return await self._chat(messages, max_tokens=4096, timeout=180.0)
