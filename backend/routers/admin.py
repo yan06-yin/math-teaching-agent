@@ -46,30 +46,37 @@ async def admin_dashboard(
         ExamAttempt.is_deleted == False,
         Student.is_deleted == False,
     ).scalar() or 0
-    # 计算全局总分均值：union_all 合并作业和考试的有分记录，加权平均
-    from sqlalchemy import union_all
+    # 计算全局总分均值：每个学生算个人均分 → 所有学生平均（等权重）
+    from sqlalchemy import union_all, func as sa_func
 
-    hw_scores = db.query(
-        HomeworkSubmission.score.label("score")
-    ).join(
-        Student, HomeworkSubmission.student_id == Student.id,
-    ).filter(
-        HomeworkSubmission.is_deleted == False,
-        HomeworkSubmission.score > 0,
-        Student.is_deleted == False,
-    )
-    exam_scores = db.query(
-        ExamAttempt.score.label("score")
-    ).join(
-        Student, ExamAttempt.student_id == Student.id,
-    ).filter(
-        ExamAttempt.is_deleted == False,
-        ExamAttempt.score > 0,
-        Student.is_deleted == False,
-    )
-    all_scores = union_all(hw_scores, exam_scores).subquery()
-    raw_avg = db.query(func.avg(all_scores.c.score)).scalar() or 0
-    avg_score = round(float(raw_avg), 1)
+    all_scores = union_all(
+        db.query(
+            HomeworkSubmission.student_id.label("sid"),
+            HomeworkSubmission.score.label("score"),
+        ).join(
+            Student, HomeworkSubmission.student_id == Student.id,
+        ).filter(
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+            Student.is_deleted == False,
+        ),
+        db.query(
+            ExamAttempt.student_id.label("sid"),
+            ExamAttempt.score.label("score"),
+        ).join(
+            Student, ExamAttempt.student_id == Student.id,
+        ).filter(
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+            Student.is_deleted == False,
+        ),
+    ).subquery()
+
+    student_avg_subq = db.query(
+        sa_func.avg(all_scores.c.score).label("student_avg")
+    ).group_by(all_scores.c.sid).subquery()
+    row = db.query(sa_func.avg(student_avg_subq.c.student_avg)).scalar()
+    avg_score = round(float(row), 1) if row else 0
 
     # 每月趋势数据（近6个月）
     from sqlalchemy import extract
