@@ -69,6 +69,7 @@ class ExamGenerateConfig(BaseModel):
     difficulty: int = Field(default=3, ge=1, le=5)
     question_count: int = Field(default=10, ge=1, le=50)
     subject_areas: list[str] = []
+    with_images: bool = True  # 是否自动生成 SVG 配图
 
 
 class ExamSubmit(BaseModel):

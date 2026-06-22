@@ -322,19 +322,39 @@ class OpenModelService:
         """根据配置生成试卷（出题用较长超时 + 快速降级）"""
         points_str = "、".join(config.get("knowledge_points", [])) or "综合"
         question_count = config.get("question_count", 10)
+        with_images = config.get("with_images", True)
+
+        question_example = {
+            "id": 1,
+            "question": "题目内容",
+            "knowledge_point": "知识点",
+            "difficulty": 3,
+            "answer": "答案",
+            "explanation": "解析",
+        }
+        if with_images:
+            question_example["image_svg"] = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">...</svg>'
 
         json_example = json.dumps({
             "title": "数学测试",
-            "questions": [
-                {"id": 1, "question": "题目内容", "knowledge_point": "知识点", "difficulty": 3, "answer": "答案", "explanation": "解析"}
-            ]
+            "questions": [question_example]
         }, ensure_ascii=False)
+
+        image_instruction = """
+- **需要配图的题目**请在 `image_svg` 字段填入 SVG 代码。以下题型应配图：
+  - 几何题：三角形、圆、坐标系等示意图
+  - 函数题：坐标系 + 函数图像（抛物线、直线等）
+  - 统计题：柱状图、折线图（用 SVG rect/polyline 绘制）
+  - 分数/数轴题：数轴、面积模型图
+- SVG 放在 `<svg>` 标签内，标注 `width="400" height="300"`，用有颜色的图形元素
+- 不需要配图的题（纯代数计算、文字题）不包含 `image_svg` 字段""" if with_images else ""
 
         prompt = f"""你是数学教师，请生成 {question_count} 道数学题。
 
 学段：{school_level}
 重点知识点：{points_str}
 难度：{config.get("difficulty", 3)}/5
+{image_instruction}
 
 直接返回纯 JSON（不要使用 markdown 代码块），格式如下：
 {json_example}
@@ -345,7 +365,7 @@ class OpenModelService:
 - 围绕 {points_str} 出题
 """
         messages = [
-            {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。"},
+            {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。" + (" SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素，清晰可读。" if with_images else "")},
             {"role": "user", "content": prompt},
         ]
         return await self._chat(messages, max_tokens=4096, timeout=180.0)

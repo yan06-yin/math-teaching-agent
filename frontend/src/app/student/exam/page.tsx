@@ -4,7 +4,7 @@ import Link from "next/link";
 import axios from "axios";
 
 export default function ExamPage() {
-  const [config, setConfig] = useState({ knowledgePoints: "", difficulty: 3, questionCount: 5 });
+  const [config, setConfig] = useState({ knowledgePoints: "", difficulty: 3, questionCount: 5, withImages: true });
   const [questions, setQuestions] = useState<any[]>([]);
   const [answers, setAnswers] = useState<string[]>([]);
   const [step, setStep] = useState<"config" | "taking" | "grading">("config");
@@ -89,6 +89,7 @@ export default function ExamPage() {
               <div><label className="block text-sm font-medium mb-1">薄弱知识点</label><input className="input" placeholder="一元二次方程,相似三角形" value={config.knowledgePoints} onChange={e => setConfig({...config, knowledgePoints: e.target.value})} /></div>
               <div><label className="block text-sm font-medium mb-1">难度：{config.difficulty}/5</label><input type="range" min="1" max="5" value={config.difficulty} onChange={e => setConfig({...config, difficulty: +e.target.value})} className="w-full" /></div>
               <div><label className="block text-sm font-medium mb-1">题目：{config.questionCount}</label><input type="range" min="1" max="30" value={config.questionCount} onChange={e => setConfig({...config, questionCount: +e.target.value})} className="w-full" /></div>
+              <label className="flex items-center gap-2 text-sm py-1"><input type="checkbox" checked={config.withImages} onChange={e => setConfig({...config, withImages: e.target.checked})} className="rounded" /> 🖼️ 配图（几何/函数题自动生成 SVG）</label>
               <button onClick={handleGenerate} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "出题中..."}` : "🚀 生成试卷"}</button>
             </div>
             {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">⚠️ {errorMsg}</div>}
@@ -102,6 +103,7 @@ export default function ExamPage() {
                   <span className="w-8 h-8 bg-[#eef2ff] text-[#6366f1] rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0">{i+1}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-1">{q.question}</p>
+                    {q.image_svg && <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />}
                     {q.image_url && <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
@@ -125,6 +127,7 @@ export default function ExamPage() {
                   <span className="text-xl">{isCorrect ? "✅" : "❌"}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-2">{q.question}</p>
+                    {q.image_svg && <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />}
                     {q.image_url && <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>
