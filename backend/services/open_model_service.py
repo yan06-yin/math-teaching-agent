@@ -403,7 +403,8 @@ class OpenModelService:
 
     async def generate_learning_plan(self, student_name: str,
                                      school_level: str,
-                                     weak_points: list[str]) -> dict:
+                                     weak_points: list[str],
+                                     score: float = None) -> dict:
         """生成学习计划"""
         points_str = "\n".join(f"- {p}" for p in weak_points)
 
@@ -414,11 +415,20 @@ class OpenModelService:
             "milestones": ["目标1", "目标2"]
         }, ensure_ascii=False)
 
+        score_context = ""
+        if score is not None:
+            if score >= 80:
+                score_context = f"\n学生本次得分 {score} 分（优秀），计划应侧重巩固提升、拓展拔高、保持优势。"
+            elif score >= 60:
+                score_context = f"\n学生本次得分 {score} 分（中等），计划应重点查漏补缺、夯实薄弱知识点。"
+            else:
+                score_context = f"\n学生本次得分 {score} 分（待提升），计划应从基础开始、循序渐进、多练习巩固。"
+
         prompt = f"""制定两周学习计划。
 
 学生：{student_name}（{school_level}）
 薄弱知识点：
-{points_str}
+{points_str}{score_context}
 
 直接返回纯 JSON：
 {json_example}

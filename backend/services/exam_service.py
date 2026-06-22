@@ -163,20 +163,23 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
                     ))
         db.commit()
 
-        # 生成学习计划（如果分数<70 并且有错题）
-        if exam.score < 70:
-            weak_points = []
-            if details:
-                weak_points = [d.get("explanation", d.get("question", "未分类")) for d in details if not d.get("correct", True)]
-            if not weak_points:
-                weak_points = ["综合基础"]
-            plan = await open_model_service.generate_learning_plan(
-                student_name=student.name if student else "该学生",
-                school_level=student.school_level if student else "初中",
-                weak_points=weak_points[:5],
-            )
-            exam.learning_plan = plan.get("plan", [])
-            db.commit()
+        # 生成学习计划：任何分数都生成，高分侧重巩固提升，低分侧重补基础
+        weak_points = []
+        if details:
+            weak_points = [d.get("explanation", d.get("question", "未分类")) for d in details if not d.get("correct", True)]
+        if not weak_points and exam.score >= 70:
+            # 高分没有错题 → 巩固提升计划
+            weak_points = ["综合巩固"]
+        elif not weak_points:
+            weak_points = ["综合基础"]
+        plan = await open_model_service.generate_learning_plan(
+            student_name=student.name if student else "该学生",
+            school_level=student.school_level if student else "初中",
+            weak_points=weak_points[:5],
+            score=exam.score,
+        )
+        exam.learning_plan = plan.get("plan", [])
+        db.commit()
 
         db.refresh(exam)
         return exam, details
