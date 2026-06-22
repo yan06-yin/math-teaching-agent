@@ -14,6 +14,13 @@ export default function ExamPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [pollStatus, setPollStatus] = useState("");
 
+  // 如果 image_url 还显示着，说明没炸
+  const [imageFailed, setImageFailed] = useState<Record<number, boolean>>({});
+
+  const handleImageError = (idx: number) => {
+    setImageFailed(f => ({ ...f, [idx]: true }));
+  };
+
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -103,8 +110,11 @@ export default function ExamPage() {
                   <span className="w-8 h-8 bg-[#eef2ff] text-[#6366f1] rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0">{i+1}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-1">{q.question}</p>
-                    {q.image_svg && <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />}
-                    {q.image_url && <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
+                    {q.image_url && !imageFailed[i] ? (
+                      <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
+                    ) : q.image_svg ? (
+                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />
+                    ) : null}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
                   </div>
@@ -127,8 +137,11 @@ export default function ExamPage() {
                   <span className="text-xl">{isCorrect ? "✅" : "❌"}</span>
                   <div className="flex-1">
                     <p className="text-gray-900 mb-2">{q.question}</p>
-                    {q.image_svg && <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />}
-                    {q.image_url && <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />}
+                    {q.image_url && !imageFailed[i] ? (
+                      <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
+                    ) : q.image_svg ? (
+                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />
+                    ) : null}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>
                       <div><span className="text-gray-500">正确答案：</span><span className="text-green-600">{q.answer}</span></div>
