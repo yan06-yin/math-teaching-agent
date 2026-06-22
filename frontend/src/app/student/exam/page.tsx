@@ -39,7 +39,7 @@ export default function ExamPage() {
     try {
       const res = await axios.post(`/api/exam/generate`, {
         knowledge_points: config.knowledgePoints ? config.knowledgePoints.split(/[,，]/).map(s => s.trim()) : [],
-        difficulty: config.difficulty, question_count: config.questionCount,
+        difficulty: config.difficulty, question_count: config.questionCount, with_images: config.withImages,
       }, { headers, timeout: 30000 });
       const eid = res.data.exam_id;
       setExamId(eid);
