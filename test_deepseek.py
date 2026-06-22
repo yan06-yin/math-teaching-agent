@@ -12,7 +12,7 @@ print('\n=== 2. AI Providers ===')
 r = requests.get(BASE + '/api/admin/ai-providers', headers={'Authorization':'Bearer '+tok}, timeout=30)
 for p in r.json():
     status = 'ACTIVE' if p['is_active'] else 'OFF'
-    print('  [%s] %s key=%s...' % (status, p['name'], p['api_key'][:20]))
+    print('  [%s] %s model=%s' % (status, p['name'], p['model']))
 
 print('\n=== 3. Activate DeepSeek ===')
 for p in r.json():

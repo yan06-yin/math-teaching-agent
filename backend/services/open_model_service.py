@@ -53,22 +53,96 @@ class OpenModelService:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
     async def _chat(self, messages: list[dict], max_tokens: int = 2048) -> dict:
-        """调用 OpenAI 兼容聊天接口，带重试"""
+        """调用 OpenAI/RESPONSES 或 Anthropic Messages API，自动检测接口类型"""
+
+        # Auto-detect endpoint: OpenModel uses /v1/messages for DeepSeek, /v1/responses for OpenAI
+        if "openmodel" in self.base_url.lower():
+            url_responses = f"{self.base_url.rstrip('/')}/responses"
+            url_messages = f"{self.base_url.rstrip('/')}/messages"
+        else:
+            url = f"{self.base_url.rstrip('/')}/chat/completions"
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.7,
-        }
+        def _build_openai_payload():
+            return {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.7,
+            }
 
-        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        def _build_responses_payload():
+            # Convert messages list to input string
+            input_text = ""
+            for m in messages:
+                if m["role"] == "system":
+                    input_text = f"System: {m['content']}\n" + input_text
+                elif m["role"] == "user":
+                    content = m["content"]
+                    if isinstance(content, list):
+                        texts = [c["text"] for c in content if c.get("type") == "text"]
+                        input_text += "\n".join(texts) + "\n"
+                    else:
+                        input_text += content + "\n"
+            return {
+                "model": self.model,
+                "input": input_text.strip(),
+                "max_output_tokens": max_tokens,
+            }
 
-        # 最多重试 3 次
+        def _build_messages_payload():
+            # Anthropic Messages format for OpenModel
+            system_text = ""
+            clean_messages = []
+            for m in messages:
+                if m["role"] == "system":
+                    system_text = m["content"]
+                else:
+                    clean_messages.append(m)
+            payload = {
+                "model": self.model,
+                "messages": clean_messages,
+                "max_tokens": max_tokens,
+            }
+            if system_text:
+                payload["system"] = system_text
+            return payload
+
+        def _extract_content(data):
+            """Extract content from any response format"""
+            # Responses API format
+            if "output" in data:
+                for item in data["output"]:
+                    if item.get("type") == "message":
+                        for c in item.get("content", []):
+                            if c.get("type") == "output_text":
+                                return c["text"]
+            # Chat completions format
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                if "message" in choice and "content" in choice["message"]:
+                    return choice["message"]["content"]
+            # Anthropic Messages format
+            if "content" in data and isinstance(data["content"], list):
+                texts = [c["text"] for c in data["content"] if c.get("type") == "text"]
+                if texts:
+                    return "\n".join(texts)
+            if "content" in data and isinstance(data["content"], str):
+                return data["content"]
+            return ""
+
+        # Only OpenModel needs the /v1/messages format
+        if "openmodel" in self.base_url.lower():
+            url = url_messages
+            payload = _build_messages_payload()
+        else:
+            url = f"{self.base_url.rstrip('/')}/chat/completions"
+            payload = _build_openai_payload()
+
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
@@ -85,19 +159,7 @@ class OpenModelService:
 
                 resp.raise_for_status()
                 data = resp.json()
-
-                # 兼容不同响应格式
-                content = ""
-                if "choices" in data and len(data["choices"]) > 0:
-                    choice = data["choices"][0]
-                    if "message" in choice and "content" in choice["message"]:
-                        content = choice["message"]["content"]
-                    elif "delta" in choice and "content" in choice.get("delta", {}):
-                        content = choice["delta"]["content"]
-                    elif "text" in choice:
-                        content = choice["text"]
-                elif "content" in data:
-                    content = data["content"]
+                content = _extract_content(data)
 
                 if not content:
                     logger.warning(f"API 返回空内容: {json.dumps(data)[:300]}")
