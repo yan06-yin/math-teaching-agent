@@ -118,12 +118,13 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
     try:
         exam = bg_db.query(ExamAttempt).get(exam_id)
         if exam and not exam.questions_json:
-            result = await generate_and_save_exam(bg_db, exam.student_id, exam_config)
-            # 更新任务
+            result = await generate_and_save_exam(bg_db, exam.student_id, exam_config, exam_id)
+            # 更新任务（result 即已更新的 exam 记录）
+            exam_refreshed = result
             task = bg_db.query(GradingTask).get(task_id)
             if task:
                 task.status = "done"
-                task.result_json = {"exam_id": result.id, "questions": result.questions_json}
+                task.result_json = {"exam_id": exam_refreshed.id, "questions": exam_refreshed.questions_json}
                 task.completed_at = datetime.now(timezone.utc)
                 bg_db.commit()
     except Exception as e:

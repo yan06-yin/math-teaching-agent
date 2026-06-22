@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 async def generate_and_save_exam(db: Session, student_id: int,
-                                  config: dict) -> ExamAttempt:
+                                  config: dict, exam_id: int = None) -> ExamAttempt:
     """
     根据学生情况出题：
     1. 查询学生薄弱知识点
-    2. 调用 Agnes AI 出题
-    3. 保存试卷
+    2. 调用 AI 出题
+    3. 保存试卷到已有 exam 记录（如果传了 exam_id）
     """
     # 查询薄弱知识点
     errors = db.query(ErrorRecord).filter(
@@ -48,8 +48,15 @@ async def generate_and_save_exam(db: Session, student_id: int,
 
         questions = result.get("questions", [])
 
-        # 跳过图片生成（非 OpenAI 兼容接口不支持）
-        # 如需配图可后续通过其他接口生成
+        # 如果有 exam_id，更新已有记录；否则新建
+        if exam_id:
+            exam = db.query(ExamAttempt).get(exam_id)
+            if exam:
+                exam.questions_json = questions
+                exam.exam_config_json = exam_config
+                db.commit()
+                db.refresh(exam)
+                return exam
 
         exam = ExamAttempt(
             student_id=student_id,
