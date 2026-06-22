@@ -38,6 +38,9 @@ async def generate_and_save_exam(db: Session, student_id: int,
     }
 
     try:
+        # 每次调用前重新加载 AI 配置（解决多 worker 下配置不一致问题）
+        open_model_service.reload_from_db()
+
         result = await open_model_service.generate_exam(
             school_level=config.get("school_level", "初中"),
             config=exam_config,
@@ -61,6 +64,8 @@ async def generate_and_save_exam(db: Session, student_id: int,
 
     except Exception as e:
         logger.error(f"出题失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
