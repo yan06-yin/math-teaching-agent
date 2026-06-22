@@ -251,45 +251,52 @@ async def get_teacher_dashboard(
     """教师仪表盘总览（仅统计自己班级的学生）"""
     teacher = current_user[0]
     teacher_class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher.id).all()]
-    student_ids = (
+
+    if not teacher_class_ids:
+        return {
+            "total_students": 0, "total_homework": 0, "total_exams": 0,
+            "class_avg_score": 0, "knowledge_heatmap": [], "top_error_students": [],
+        }
+
+    student_ids_sub = (
         db.query(ClassStudent.student_id)
         .filter(ClassStudent.class_id.in_(teacher_class_ids))
         .subquery()
-    ) if teacher_class_ids else None
+    )
 
     total_students = db.query(func.count(Student.id)).filter(
-        Student.id.in_(student_ids)
-    ).scalar() or 0 if student_ids else 0
+        Student.id.in_(student_ids_sub)
+    ).scalar() or 0
 
     total_homework = db.query(func.count(HomeworkSubmission.id)).filter(
-        HomeworkSubmission.student_id.in_(student_ids)
-    ).scalar() or 0 if student_ids else 0
+        HomeworkSubmission.student_id.in_(student_ids_sub)
+    ).scalar() or 0
 
     total_exams = db.query(func.count(ExamAttempt.id)).filter(
-        ExamAttempt.student_id.in_(student_ids)
-    ).scalar() or 0 if student_ids else 0
+        ExamAttempt.student_id.in_(student_ids_sub)
+    ).scalar() or 0
 
     # 班级平均分
     avg_hw = db.query(func.avg(HomeworkSubmission.score)).filter(
-        HomeworkSubmission.student_id.in_(student_ids)
-    ).scalar() or 0 if student_ids else 0
+        HomeworkSubmission.student_id.in_(student_ids_sub)
+    ).scalar() or 0
     avg_exam = db.query(func.avg(ExamAttempt.score)).filter(
-        ExamAttempt.student_id.in_(student_ids)
-    ).scalar() or 0 if student_ids else 0
+        ExamAttempt.student_id.in_(student_ids_sub)
+    ).scalar() or 0
     class_avg = float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0)
 
-    # 知识点薄弱热力图（仅自己班级学生）
+    # 知识点薄弱热力图
     errors = (
         db.query(
             ErrorRecord.knowledge_point,
             func.sum(ErrorRecord.error_count).label("total"),
             func.count(func.distinct(ErrorRecord.student_id)).label("students"),
         )
-        .filter(ErrorRecord.student_id.in_(student_ids))
+        .filter(ErrorRecord.student_id.in_(student_ids_sub))
         .group_by(ErrorRecord.knowledge_point)
         .order_by(func.sum(ErrorRecord.error_count).desc())
         .all()
-    ) if student_ids else []
+    )
 
     heatmap = [
         {
