@@ -44,13 +44,21 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
             task.completed_at = datetime.now(timezone.utc)
             bg_db.commit()
     except Exception as e:
-        bg_db.rollback()
+        try:
+            bg_db.rollback()
+        except:
+            pass
         logger.error(f"后台考试批改失败: {e}")
-        task = bg_db.query(GradingTask).get(grading_task_id)
-        if task:
-            task.status = "error"
-            task.error_message = str(e)
-            bg_db.commit()
+        try:
+            task = bg_db.query(GradingTask).get(grading_task_id)
+            if task:
+                task.status = "error"
+                task.error_message = str(e)
+                bg_db.commit()
+        except:
+            pass
+        import traceback
+        traceback.print_exc()
     finally:
         bg_db.close()
 
@@ -119,12 +127,18 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
                 task.completed_at = datetime.now(timezone.utc)
                 bg_db.commit()
     except Exception as e:
-        bg_db.rollback()
-        task = bg_db.query(GradingTask).get(task_id)
-        if task:
-            task.status = "error"
-            task.error_message = str(e)
-            bg_db.commit()
+        try:
+            bg_db.rollback()
+        except:
+            pass
+        try:
+            task = bg_db.query(GradingTask).get(task_id)
+            if task:
+                task.status = "error"
+                task.error_message = str(e)
+                bg_db.commit()
+        except:
+            pass
         logger.error(f"后台出题失败: {e}")
         import traceback
         traceback.print_exc()
