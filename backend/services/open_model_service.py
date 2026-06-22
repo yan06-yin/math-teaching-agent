@@ -57,12 +57,13 @@ class OpenModelService:
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
-    async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None) -> dict:
+    async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None, timeout: float = 120.0) -> dict:
         """调用 AI 聊天接口，自带重试 + 错误降级到 Agnes Flash"""
-        return await self._chat_with_fallback(messages, max_tokens, force_model)
+        return await self._chat_with_fallback(messages, max_tokens, force_model, timeout=timeout)
 
     async def _chat_with_fallback(self, messages: list[dict], max_tokens: int = 2048,
-                                    force_model: str = None, is_retry: bool = False) -> dict:
+                                    force_model: str = None, is_retry: bool = False,
+                                    timeout: float = 120.0) -> dict:
         """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash"""
         # 如果 force_model 指定了模型，临时切换
         using_fallback = self._fallback_active or is_retry
@@ -96,15 +97,15 @@ class OpenModelService:
         model_label = "Agnes Flash(回退)" if using_fallback else model
         logger.info(f"AI 请求: {model_label} -> {url[:50]}...")
 
-        for attempt in range(3):
+        max_attempts = 1  # 每个模型尝试 1 次，失败就降级（避免链路过长）
+        last_error = None
+        for attempt in range(max_attempts):
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=timeout)) as client:
                     resp = await client.post(url, headers=headers, json=payload)
 
                 if resp.status_code == 503:
-                    wait = (attempt + 1) * 3
-                    logger.warning(f"503 限流，{wait}s 后重试 ({attempt+1}/3)")
-                    await asyncio.sleep(wait)
+                    await asyncio.sleep(3)
                     continue
 
                 if resp.status_code == 401:
@@ -119,45 +120,26 @@ class OpenModelService:
                     continue
 
                 result = self._parse_json_response(content)
-                # 如果降级成功了，标记一下
                 if using_fallback:
                     result["_fallback_used"] = True
                 return result
 
-            except httpx.TimeoutException:
-                if attempt < 2:
-                    wait = (attempt + 1) * 5
-                    logger.warning(f"超时，{wait}s 后重试 ({attempt+1}/3)")
-                    await asyncio.sleep(wait)
-                    continue
-                raise
-            except (httpx.HTTPStatusError, httpx.RequestError) as e:
-                if attempt < 2:
-                    wait = (attempt + 1) * 3
-                    logger.warning(f"请求异常: {e}，{wait}s 后重试")
-                    await asyncio.sleep(wait)
-                    continue
-                raise
-            except ValueError:
-                raise
             except Exception as e:
-                if attempt < 2:
-                    wait = (attempt + 1) * 2
-                    logger.warning(f"未知错误: {e}，重试")
-                    await asyncio.sleep(wait)
-                    continue
-                raise
+                last_error = e
+                logger.warning(f"AI 请求失败 (attempt {attempt+1}/{max_attempts}): {e}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(3)
 
-        # 3 次都失败，且还没试过回退 -> 自动降级到 Agnes Flash
+        # 所有尝试都失败，且还没试过回退 -> 自动降级到 Agnes Flash
         if not using_fallback and not is_retry:
             logger.warning(f"模型 {model} 请求失败，自动降级到 Agnes AI Flash")
             self._fallback_active = True
             try:
-                return await self._chat_with_fallback(messages, max_tokens, force_model, is_retry=True)
+                return await self._chat_with_fallback(messages, max_tokens, force_model, is_retry=True, timeout=timeout)
             finally:
                 self._fallback_active = False
 
-        raise ValueError(f"AI 请求多次重试后仍然失败 (model={model_label})")
+        raise ValueError(f"AI 请求多次重试后仍然失败 (model={model_label}): {last_error}")
 
     def _build_openai_payload(self, messages, max_tokens, model):
         return {
@@ -337,7 +319,7 @@ class OpenModelService:
         return await self._chat(messages)
 
     async def generate_exam(self, school_level: str, config: dict) -> dict:
-        """根据配置生成试卷"""
+        """根据配置生成试卷（出题用较长超时 + 快速降级）"""
         points_str = "、".join(config.get("knowledge_points", [])) or "综合"
         question_count = config.get("question_count", 10)
 
@@ -366,7 +348,7 @@ class OpenModelService:
             {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。"},
             {"role": "user", "content": prompt},
         ]
-        return await self._chat(messages, max_tokens=4096)
+        return await self._chat(messages, max_tokens=4096, timeout=180.0)
 
     async def generate_diagnostic_report(self, student_name: str,
                                          school_level: str,

@@ -17,16 +17,19 @@ export default function ExamPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
   const headers = { Authorization: `Bearer ${token}` };
 
-  const pollWithTimeout = async (url: string, maxSec = 180, intervalMs = 3000) => {
+  const pollWithTimeout = async (url: string, maxSec = 300, intervalMs = 3000) => {
     const maxAttempts = Math.floor((maxSec * 1000) / intervalMs);
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, intervalMs));
-      setPollStatus(`正在处理... ${Math.round((i * intervalMs) / 1000)}s`);
+      const elapsed = Math.round((i * intervalMs) / 1000);
+      if (elapsed < 60) setPollStatus(`⏳ 正在出题... ${elapsed}s`);
+      else if (elapsed < 120) setPollStatus(`⏳ AI 运算中，请稍候... ${elapsed}s`);
+      else setPollStatus(`⏳ 还在生成... ${elapsed}s（AI 运算越久题目质量越高）`);
       const res = await axios.get(url, { headers, timeout: 10000 });
       if (res.data.status === "done") return res.data;
       if (res.data.status === "error") throw new Error(res.data.error || "处理失败");
     }
-    throw new Error("处理超时，请稍后重试");
+    throw new Error("处理超时（5 分钟），请刷新后重试");
   };
 
   const handleGenerate = async () => {
@@ -63,7 +66,7 @@ export default function ExamPage() {
         answers: answers.map((a, i) => ({ question_index: i, answer: a })),
       }, { headers, timeout: 30000 });
 
-      const data = await pollWithTimeout(`/api/exam/${examId}/status`);
+      const data = await pollWithTimeout(`/api/exam/${examId}/status`, 300);
       setResult(data);
       setStep("grading");
     } catch (e: any) {
