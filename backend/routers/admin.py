@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, union_all, cast, String
 
 from database import get_db
 from models import (
@@ -47,8 +47,6 @@ async def admin_dashboard(
         Student.is_deleted == False,
     ).scalar() or 0
     # 计算全局总分均值：每个学生算个人均分 → 所有学生平均（等权重）
-    from sqlalchemy import union_all, func as sa_func, cast, String
-
     # 作业：已批改完成（status=done），考试：已提交答案（student_answers 非空）
     all_scores = union_all(
         db.query(
@@ -74,9 +72,9 @@ async def admin_dashboard(
     ).subquery()
 
     student_avg_subq = db.query(
-        sa_func.avg(all_scores.c.score).label("student_avg")
+        func.avg(all_scores.c.score).label("student_avg")
     ).group_by(all_scores.c.sid).subquery()
-    row = db.query(sa_func.avg(student_avg_subq.c.student_avg)).scalar()
+    row = db.query(func.avg(student_avg_subq.c.student_avg)).scalar()
     avg_score = round(float(row), 1) if row else 0
 
     # 每月趋势数据（近6个月）
@@ -138,9 +136,9 @@ async def admin_dashboard(
         )
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
         m_student_avg = db.query(
-            sa_func.avg(all_scores_m.c.score).label("student_avg")
+            func.avg(all_scores_m.c.score).label("student_avg")
         ).group_by(all_scores_m.c.sid).subquery()
-        m_row = db.query(sa_func.avg(m_student_avg.c.student_avg)).scalar()
+        m_row = db.query(func.avg(m_student_avg.c.student_avg)).scalar()
         avg_in_month = round(float(m_row), 1) if m_row else 0
 
     return {
