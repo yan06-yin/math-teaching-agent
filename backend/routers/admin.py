@@ -25,15 +25,39 @@ async def admin_dashboard(
     db: Session = Depends(get_db),
 ):
     """系统总览数据"""
-    teacher_count = db.query(func.count(Teacher.id)).filter(Teacher.is_admin == False).scalar() or 0
+    teacher_count = db.query(func.count(Teacher.id)).filter(
+        Teacher.is_admin == False,
+        Teacher.is_deleted == False,
+    ).scalar() or 0
     class_count = db.query(func.count(Class.id)).scalar() or 0
-    student_count = db.query(func.count(Student.id)).scalar() or 0
+    student_count = db.query(func.count(Student.id)).filter(
+        Student.is_deleted == False,
+    ).scalar() or 0
     assignment_count = db.query(func.count(Assignment.id)).scalar() or 0
-    hw_count = db.query(func.count(HomeworkSubmission.id)).scalar() or 0
-    exam_count = db.query(func.count(ExamAttempt.id)).scalar() or 0
-    avg_hw = db.query(func.avg(HomeworkSubmission.score)).scalar() or 0
-    avg_exam = db.query(func.avg(ExamAttempt.score)).scalar() or 0
-    avg_score = round(float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0), 1)
+    hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
+        HomeworkSubmission.is_deleted == False,
+    ).scalar() or 0
+    exam_count = db.query(func.count(ExamAttempt.id)).filter(
+        ExamAttempt.is_deleted == False,
+    ).scalar() or 0
+    # 计算全局总分均值：union_all 合并作业和考试的有分记录，加权平均
+    from sqlalchemy import union_all
+
+    hw_scores = db.query(
+        HomeworkSubmission.score.label("score")
+    ).filter(
+        HomeworkSubmission.is_deleted == False,
+        HomeworkSubmission.score > 0,
+    )
+    exam_scores = db.query(
+        ExamAttempt.score.label("score")
+    ).filter(
+        ExamAttempt.is_deleted == False,
+        ExamAttempt.score > 0,
+    )
+    all_scores = union_all(hw_scores, exam_scores).subquery()
+    raw_avg = db.query(func.avg(all_scores.c.score)).scalar() or 0
+    avg_score = round(float(raw_avg), 1)
 
     # 每月趋势数据（近6个月）
     from sqlalchemy import extract
@@ -52,17 +76,34 @@ async def admin_dashboard(
         hw_in_month = db.query(func.count(HomeworkSubmission.id)).filter(
             extract("year", HomeworkSubmission.created_at) == year,
             extract("month", HomeworkSubmission.created_at) == month,
+            HomeworkSubmission.is_deleted == False,
         ).scalar() or 0
 
         exam_in_month = db.query(func.count(ExamAttempt.id)).filter(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
+            ExamAttempt.is_deleted == False,
         ).scalar() or 0
 
-        avg_in_month = db.query(func.avg(ExamAttempt.score)).filter(
+        # 月度平均分：合并当月作业和考试的分数
+        hw_scores_m = db.query(
+            HomeworkSubmission.score.label("score")
+        ).filter(
+            extract("year", HomeworkSubmission.created_at) == year,
+            extract("month", HomeworkSubmission.created_at) == month,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+        )
+        exam_scores_m = db.query(
+            ExamAttempt.score.label("score")
+        ).filter(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
-        ).scalar() or 0
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+        )
+        all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
+        avg_in_month = db.query(func.avg(all_scores_m.c.score)).scalar() or 0
 
         months_data.append({
             "month": label,
@@ -210,7 +251,7 @@ async def list_all_students(
     offset: int = Query(0, ge=0),
 ):
     """查看所有学生（支持分页）"""
-    total = db.query(func.count(Student.id)).scalar() or 0
+    total = db.query(func.count(Student.id)).filter(Student.is_deleted == False).scalar() or 0
     students = db.query(Student).filter(Student.is_deleted == False).order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
     result = []
     for s in students:
@@ -220,11 +261,39 @@ async def list_all_students(
             cls = db.query(Class).get(cs.class_id)
             class_name = cls.name if cls else None
 
-        hw_count = db.query(func.count(HomeworkSubmission.id)).filter(HomeworkSubmission.student_id == s.id).scalar() or 0
-        exam_count = db.query(func.count(ExamAttempt.id)).filter(ExamAttempt.student_id == s.id).scalar() or 0
-        hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(HomeworkSubmission.student_id == s.id).scalar() or 0
-        exam_avg = db.query(func.avg(ExamAttempt.score)).filter(ExamAttempt.student_id == s.id).scalar() or 0
-        avg_score = float((hw_avg + exam_avg) / 2) if hw_avg and exam_avg else float(hw_avg or exam_avg or 0)
+        hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+        ).scalar() or 0
+        exam_count = db.query(func.count(ExamAttempt.id)).filter(
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+        ).scalar() or 0
+        hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+        ).scalar() or 0
+        exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+        ).scalar() or 0
+
+        # 加权平均：只算有有效分（>0）的记录
+        hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+        ).scalar() or 0
+        exam_valid = db.query(func.count(ExamAttempt.id)).filter(
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+        ).scalar() or 0
+        total_scores = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
+        total_valid = hw_valid + exam_valid
+        avg_score = round(total_scores / total_valid, 1) if total_valid > 0 else 0
 
         result.append({
             "id": s.id,
@@ -329,7 +398,9 @@ async def list_exam_records(
     db: Session = Depends(get_db),
 ):
     """查看考试记录"""
-    exams = db.query(ExamAttempt).order_by(ExamAttempt.created_at.desc()).limit(200).all()
+    exams = db.query(ExamAttempt).filter(
+        ExamAttempt.is_deleted == False,
+    ).order_by(ExamAttempt.created_at.desc()).limit(200).all()
     result = []
     for e in exams:
         student = db.query(Student).get(e.student_id)
