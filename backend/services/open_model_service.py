@@ -139,6 +139,8 @@ class OpenModelService:
         if "openmodel" in self.base_url.lower():
             url = url_messages
             payload = _build_messages_payload()
+            # OpenModel's /v1/messages needs anthropic-version header for some models
+            headers["anthropic-version"] = "2023-06-01"
         else:
             url = f"{self.base_url.rstrip('/')}/chat/completions"
             payload = _build_openai_payload()
