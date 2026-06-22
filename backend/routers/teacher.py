@@ -239,12 +239,16 @@ async def delete_student(
         raise HTTPException(status_code=404, detail="学生不存在")
 
     student.is_deleted = True
-    # 级联删除该学生的考试记录、作业记录、错题记录
+    # 从班级中移除（必须先做，因为 FK 依赖）
+    db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
+    # 级联删除该学生的考试记录、作业记录、错题记录、提交记录
     db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
     db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
     db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
-    # 从班级中移除
-    db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
+    db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
+    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
+    # 作业提交
+    db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
     db.commit()
     return {"message": f"已删除学生 {student.name}({student.student_id}) 及相关数据"}
 
