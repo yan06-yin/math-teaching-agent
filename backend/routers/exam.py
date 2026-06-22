@@ -13,6 +13,7 @@ from models import Student, ExamAttempt, GradingTask
 from schemas import ExamGenerateConfig, ExamSubmit
 from services.exam_service import generate_and_save_exam, grade_exam
 from utils.auth import require_student
+import traceback
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -153,6 +154,14 @@ async def get_exam_generate_status(
 
     if task and task.status == "error":
         return {"status": "error", "error": task.error_message}
+
+    # Check all recent tasks for this student (not just 'exam_generate' type)
+    all_tasks = db.query(GradingTask).filter(
+        GradingTask.student_id == student_id,
+    ).order_by(GradingTask.created_at.desc()).limit(5).all()
+    for t in all_tasks:
+        if t.status == "error" and t.error_message:
+            return {"status": "error", "error": t.error_message}
 
     return {"status": "generating", "exam_id": exam.id}
 
