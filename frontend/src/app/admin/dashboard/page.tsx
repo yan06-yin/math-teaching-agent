@@ -100,7 +100,7 @@ export default function AdminDashboard() {
     if (!confirm(`确定删除教师「${name}」？会级联删除所有班级和学生关联。`)) return;
     try {
       await axios.delete(`/api/admin/teachers/${id}`, { headers: headers() });
-      setTeachers(prev => prev.filter(t => t.id !== id));
+      loadAll();
     } catch (e: any) { toast("删除失败：", "error"); }
   };
 
@@ -125,7 +125,7 @@ export default function AdminDashboard() {
     if (!confirm(`将「${name}」移出班级？`)) return;
     try {
       await axios.delete(`/api/admin/students/${studentId}/class`, { headers: headers() });
-      setStudents(prev => prev.map(s => s.id === studentId ? { ...s, class_name: null } : s));
+      loadAll();
     } catch (e: any) { toast("操作失败：", "error"); }
   };
 
@@ -133,8 +133,7 @@ export default function AdminDashboard() {
     if (!confirm(`确定删除学生「${name}」？将级联删除所有作业、考试、错题记录。`)) return;
     try {
       await axios.delete(`/api/admin/students/${id}`, { headers: headers() });
-      setStudents(prev => prev.filter(s => s.id !== id));
-      toast(`已删除 ${name}`);
+      loadAll();
     } catch (e: any) { toast("删除失败：", "error"); }
   };
 

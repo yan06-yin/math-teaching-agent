@@ -66,7 +66,12 @@ export default function TeacherDashboard() {
     setDeletingId(id);
     try {
       await axios.delete(`/api/teacher/students/${id}`, { headers: headers() });
-      setStudentList(prev => prev.filter(s => s.id !== id));
+      // 重新加载所有数据（总览/列表/错题都同步更新）
+      const [d, e, s] = await Promise.all([
+        axios.get("/api/teacher/dashboard", { headers: headers() }).then(r => setData(r.data)).catch(() => {}),
+        axios.get("/api/teacher/errors", { headers: headers() }).then(r => setErrors(r.data)).catch(() => {}),
+        axios.get("/api/teacher/students", { headers: headers() }).then(r => setStudentList(r.data.students || r.data)).catch(() => {}),
+      ]);
     } catch (e: any) { toast("删除失败：", "error"); }
     finally { setDeletingId(null); }
   };
