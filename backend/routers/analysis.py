@@ -38,25 +38,29 @@ async def get_student_profile(
         ExamAttempt.student_id == student_id
     ).scalar() or 0
 
-    # 平均分
+    # 平均分（仅已批改的）
     avg_hw = db.query(func.avg(HomeworkSubmission.score)).filter(
-        HomeworkSubmission.student_id == student_id
+        HomeworkSubmission.student_id == student_id,
+        HomeworkSubmission.is_deleted == False,
+        HomeworkSubmission.status == "done",
     ).scalar() or 0
 
     avg_exam = db.query(func.avg(ExamAttempt.score)).filter(
-        ExamAttempt.student_id == student_id
+        ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
+        ExamAttempt.student_answers != None,
     ).scalar() or 0
 
-    # 平均分：有分记录加权平均（不区分作业/考试）
+    # 平均分：已批改记录加权平均
     hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
         HomeworkSubmission.student_id == student_id,
         HomeworkSubmission.is_deleted == False,
-        HomeworkSubmission.score > 0,
+        HomeworkSubmission.status == "done",
     ).scalar() or 0
     exam_valid = db.query(func.count(ExamAttempt.id)).filter(
         ExamAttempt.student_id == student_id,
         ExamAttempt.is_deleted == False,
-        ExamAttempt.score > 0,
+        ExamAttempt.student_answers != None,
     ).scalar() or 0
     total_score = float(avg_hw or 0) * hw_valid + float(avg_exam or 0) * exam_valid
     total_count = hw_valid + exam_valid

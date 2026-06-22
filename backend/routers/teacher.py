@@ -159,21 +159,44 @@ async def get_all_students(
     students = query.order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
     result = []
     for s in students:
-        # 作业统计
+        # 作业统计（仅已批改的）
         hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
-            HomeworkSubmission.student_id == s.id
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.status == "done",
         ).scalar() or 0
         hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(
-            HomeworkSubmission.student_id == s.id
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.status == "done",
         ).scalar() or 0
 
-        # 考试统计
+        # 考试统计（仅已提交的）
         exam_count = db.query(func.count(ExamAttempt.id)).filter(
-            ExamAttempt.student_id == s.id
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.student_answers != None,
         ).scalar() or 0
         exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
-            ExamAttempt.student_id == s.id
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.student_answers != None,
         ).scalar() or 0
+
+        # 错题数
+        error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
+
+        # 薄弱知识点数
+        weak_count = db.query(func.count(func.distinct(ErrorRecord.knowledge_point))).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
+
+        # 个人均分：已批改记录加权平均
+        total_score = float(hw_avg or 0) * hw_count + float(exam_avg or 0) * exam_count
+        total_count = hw_count + exam_count
+        avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
 
         # 错题数
         error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
@@ -309,7 +332,7 @@ async def get_teacher_dashboard(
         ).filter(
             HomeworkSubmission.student_id.in_(student_ids_sub),
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
         ),
         db.query(
             ExamAttempt.student_id.label("sid"),
@@ -317,7 +340,7 @@ async def get_teacher_dashboard(
         ).filter(
             ExamAttempt.student_id.in_(student_ids_sub),
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            ExamAttempt.student_answers != None,
         ),
     ).subquery()
 

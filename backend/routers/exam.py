@@ -265,7 +265,7 @@ async def get_exam_status(
         return {"status": "error", "error": task.error_message}
 
     # 退路：如果已有分数（兼容旧数据），也返回 done
-    if exam.score is not None and exam.score > 0:
+    if exam.score is not None and hasattr(exam, 'student_answers') and exam.student_answers:
         return {
             "status": "done",
             "exam_id": exam.id,

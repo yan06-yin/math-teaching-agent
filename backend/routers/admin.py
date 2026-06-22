@@ -47,8 +47,9 @@ async def admin_dashboard(
         Student.is_deleted == False,
     ).scalar() or 0
     # 计算全局总分均值：每个学生算个人均分 → 所有学生平均（等权重）
-    from sqlalchemy import union_all, func as sa_func
+    from sqlalchemy import union_all, func as sa_func, cast, String
 
+    # 作业：已批改完成（status=done），考试：已提交答案（student_answers 非空）
     all_scores = union_all(
         db.query(
             HomeworkSubmission.student_id.label("sid"),
@@ -57,7 +58,7 @@ async def admin_dashboard(
             Student, HomeworkSubmission.student_id == Student.id,
         ).filter(
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
             Student.is_deleted == False,
         ),
         db.query(
@@ -67,7 +68,7 @@ async def admin_dashboard(
             Student, ExamAttempt.student_id == Student.id,
         ).filter(
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            cast(ExamAttempt.student_answers, String) != "[]",
             Student.is_deleted == False,
         ),
     ).subquery()
@@ -120,7 +121,7 @@ async def admin_dashboard(
             extract("year", HomeworkSubmission.created_at) == year,
             extract("month", HomeworkSubmission.created_at) == month,
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
             Student.is_deleted == False,
         )
         exam_scores_m = db.query(
@@ -132,7 +133,7 @@ async def admin_dashboard(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            cast(ExamAttempt.student_answers, String) != "[]",
             Student.is_deleted == False,
         )
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
@@ -302,24 +303,26 @@ async def list_all_students(
         hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(
             HomeworkSubmission.student_id == s.id,
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
         ).scalar() or 0
         exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ).scalar() or 0
 
-        # 加权平均：只算有有效分（>0）的记录
+        # 加权平均：只算已批改的记录
         hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
             HomeworkSubmission.student_id == s.id,
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
         ).scalar() or 0
         exam_valid = db.query(func.count(ExamAttempt.id)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ).scalar() or 0
         total_scores = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_valid = hw_valid + exam_valid
