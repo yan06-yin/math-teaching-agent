@@ -91,7 +91,10 @@ async def list_all_teachers(
     db: Session = Depends(get_db),
 ):
     """查看所有教师"""
-    teachers = db.query(Teacher).filter(Teacher.is_admin == False).order_by(Teacher.created_at.desc()).all()
+    teachers = db.query(Teacher).filter(
+        Teacher.is_admin == False,
+        Teacher.is_deleted == False,
+    ).order_by(Teacher.created_at.desc()).all()
     result = []
     for t in teachers:
         class_count = db.query(func.count(Class.id)).filter(Class.teacher_id == t.id).scalar() or 0
@@ -141,7 +144,20 @@ async def delete_teacher(
 
     teacher.is_deleted = True
     db.commit()
-    return {"message": f"已删除教师 {teacher.name}"}
+
+    # 硬删除该教师相关的考试记录（考试是独立的，不依赖教师ID，但可以通过学生关联清理）
+    # 删除该教师班级下所有学生的考试记录
+    student_ids = db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).subquery()
+    if class_ids:
+        db.query(ExamAttempt).filter(ExamAttempt.student_id.in_(student_ids)).delete(synchronize_session=False)
+        db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)
+        db.query(ErrorRecord).filter(ErrorRecord.student_id.in_(student_ids)).delete(synchronize_session=False)
+
+    # 删除该教师班级下的学生
+    db.query(Student).filter(Student.id.in_(student_ids)).delete(synchronize_session=False)
+
+    db.commit()
+    return {"message": f"已删除教师 {teacher.name} 及所有关联数据"}
 
 
 # ===== 班级管理 =====
