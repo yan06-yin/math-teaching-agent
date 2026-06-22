@@ -27,7 +27,7 @@ def _generate_code(length=8) -> str:
 
 # ===== 教师端 =====
 
-@router.post("/")
+@router.post("")
 async def create_class(
     body: ClassCreate,
     current_user=Depends(require_teacher),
@@ -52,7 +52,7 @@ async def create_class(
     }
 
 
-@router.get("/")
+@router.get("")
 async def list_classes(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
