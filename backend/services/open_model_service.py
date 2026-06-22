@@ -42,11 +42,11 @@ class OpenModelService:
             from models import AIProvider
             provider = db_session.query(AIProvider).filter(AIProvider.is_active == True).first()
             if provider:
-                self.api_key = provider.api_key
-                self.base_url = provider.base_url
+                self.api_key = provider.api_key.strip() if provider.api_key else ""
+                self.base_url = provider.base_url.rstrip("/")
                 self.model = provider.model
                 self._provider_id = provider.id
-                logger.info(f"AI 模型配置已切换: {provider.name} ({provider.model})")
+                logger.info(f"AI 配置已加载: {provider.name} ({provider.model}) key_len={len(self.api_key)}")
             if close_session:
                 db_session.close()
         except Exception as e:
