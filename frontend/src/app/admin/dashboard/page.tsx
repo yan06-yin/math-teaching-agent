@@ -21,6 +21,7 @@ export default function AdminDashboard() {
   const [aiProviders, setAiProviders] = useState<any[]>([]);
   const [showAddAi, setShowAddAi] = useState(false);
   const [aiForm, setAiForm] = useState({ name: "", base_url: "", api_key: "", model: "", is_active: false });
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   const headers = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}` });
 
@@ -43,12 +44,19 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  useEffect(() => { loadAll(); }, []);
-
-  // 自动加载 AI 模型列表（不需要先点"添加模型"）
+  // 初始加载一次
   useEffect(() => {
+    loadAll();
     loadAiProviders();
+    setInitialLoadDone(true);
   }, []);
+
+  // 切回总览 tab 时刷新数据
+  useEffect(() => {
+    if (initialLoadDone && tab === "overview") {
+      loadAll();
+    }
+  }, [tab]);
 
   const loadAiProviders = async () => {
     try {
