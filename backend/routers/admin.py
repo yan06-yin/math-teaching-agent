@@ -9,7 +9,7 @@ from database import get_db
 from models import (
     Teacher, Student, Class, ClassStudent, InviteCode,
     Assignment, AssignmentSubmission, HomeworkSubmission, ExamAttempt,
-    ErrorRecord, ActivityLog,
+    ErrorRecord, ActivityLog, GradingTask,
 )
 from schemas import AdminAssignStudent
 from utils.auth import require_admin, require_teacher
@@ -379,6 +379,29 @@ async def admin_remove_student_class(
     db.delete(cs)
     db.commit()
     return {"message": "已移出班级"}
+
+
+@router.delete("/students/{student_id}")
+async def admin_delete_student(
+    student_id: int,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员软删除学生（级联清理所有关联数据）"""
+    student = db.query(Student).get(student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    student.is_deleted = True
+    db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
+    db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
+    db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
+    db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
+    db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
+    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
+    db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"已删除学生 {student.name}({student.student_id}) 及相关数据"}
 
 
 # ===== 作业管理 =====

@@ -35,7 +35,14 @@ export default function AdminDashboard() {
       axios.get("/api/admin/assignments", { headers: headers() }).catch(() => null),
       axios.get("/api/admin/exams", { headers: headers() }).catch(() => null),
     ]);
-    if (d?.data) setData(d.data);
+    if (d?.data) {
+      setData(d.data);
+      console.log("[Admin Dashboard] API response:", d.data);
+    } else if (d) {
+      console.log("[Admin Dashboard] API returned but no data:", d);
+    } else {
+      console.error("[Admin Dashboard] API request failed for /api/admin/dashboard");
+    }
     if (t?.data) setTeachers(t.data);
     if (c?.data) setClasses(c.data);
     if (s?.data) setStudents(s.data.students || s.data);
@@ -120,6 +127,15 @@ export default function AdminDashboard() {
       await axios.delete(`/api/admin/students/${studentId}/class`, { headers: headers() });
       setStudents(prev => prev.map(s => s.id === studentId ? { ...s, class_name: null } : s));
     } catch (e: any) { toast("操作失败：", "error"); }
+  };
+
+  const handleDeleteStudent = async (id: number, name: string) => {
+    if (!confirm(`确定删除学生「${name}」？将级联删除所有作业、考试、错题记录。`)) return;
+    try {
+      await axios.delete(`/api/admin/students/${id}`, { headers: headers() });
+      setStudents(prev => prev.filter(s => s.id !== id));
+      toast(`已删除 ${name}`);
+    } catch (e: any) { toast("删除失败：", "error"); }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner spinner-lg"></div></div>;
@@ -246,8 +262,9 @@ export default function AdminDashboard() {
                         {s.class_name ? (
                           <button onClick={() => handleRemoveClass(s.id, s.name)} className="btn-danger btn-sm mr-1">移出</button>
                         ) : (
-                          <button onClick={() => handleAssignStudent(s.id)} className="btn-primary btn-sm">分配</button>
+                          <button onClick={() => handleAssignStudent(s.id)} className="btn-primary btn-sm mr-1">分配</button>
                         )}
+                        <button onClick={() => handleDeleteStudent(s.id, s.name)} className="btn-danger btn-sm">删除</button>
                       </td>
                     </tr>
                   )) : <tr><td colSpan={8} className="text-center py-8 text-gray-400">暂无学生</td></tr>}</tbody>
