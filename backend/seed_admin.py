@@ -79,17 +79,17 @@ def seed_admin():
                 name="Agnes AI Flash (默认)",
                 provider="openai-compatible",
                 base_url="https://apihub.agnes-ai.com/v1",
-                api_key=settings.AGNES_API_KEY or "",
+                api_key="sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE",
                 model="agnes-2.0-flash",
                 is_active=True,
             )
             db.add(default)
-            # 同时添加 DeepSeek V4 Flash 作为选项（需要用户在管理后台切换并配置 API Key）
+            # 同时添加 DeepSeek V4 Flash 作为选项
             deepseek = AIProvider(
                 name="DeepSeek V4 Flash",
                 provider="openai-compatible",
                 base_url="https://api.openmodel.ai/v1",
-                api_key="",
+                api_key="om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z",
                 model="deepseek-v4-flash",
                 is_active=False,
             )
@@ -97,20 +97,30 @@ def seed_admin():
             db.commit()
             logger.info("已添加默认 AI 模型配置: Agnes AI Flash (默认) + DeepSeek V4 Flash (可选)")
         else:
-            # 确保 DeepSeek 也在列表中（如果不存在）
+            # 确保 DeepSeek 也在列表中（如果不存在），并更新 API Key
             deepseek_exists = db.query(AIProvider).filter(AIProvider.model == "deepseek-v4-flash").first()
             if not deepseek_exists:
                 deepseek = AIProvider(
                     name="DeepSeek V4 Flash",
                     provider="openai-compatible",
                     base_url="https://api.openmodel.ai/v1",
-                    api_key="",
+                    api_key="om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z",
                     model="deepseek-v4-flash",
                     is_active=False,
                 )
                 db.add(deepseek)
                 db.commit()
                 logger.info("已添加 DeepSeek V4 Flash 选项")
+            else:
+                # 更新 DeepSeek 的 API Key
+                deepseek_exists.api_key = "om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z"
+                db.commit()
+
+            # 确保 Agnes 的 API Key 也是最新的
+            agnes_exists = db.query(AIProvider).filter(AIProvider.model == "agnes-2.0-flash").first()
+            if agnes_exists:
+                agnes_exists.api_key = "sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE"
+                db.commit()
 
             if not db.query(AIProvider).filter(AIProvider.is_active == True).first():
                 first = db.query(AIProvider).first()
