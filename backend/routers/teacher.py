@@ -208,16 +208,16 @@ async def get_all_students(
             ErrorRecord.student_id == s.id
         ).scalar() or 0
 
-        # 个人均分：有分记录加权平均
+        # 个人均分：已批改记录加权平均
         hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
             HomeworkSubmission.student_id == s.id,
             HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.score > 0,
+            HomeworkSubmission.status == "done",
         ).scalar() or 0
         exam_valid = db.query(func.count(ExamAttempt.id)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.score > 0,
+            ExamAttempt.student_answers != None,
         ).scalar() or 0
         total_score = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_count = hw_valid + exam_valid
