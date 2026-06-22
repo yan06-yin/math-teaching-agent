@@ -47,7 +47,20 @@ async def get_student_profile(
         ExamAttempt.student_id == student_id
     ).scalar() or 0
 
-    avg_score = float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0)
+    # 平均分：有分记录加权平均（不区分作业/考试）
+    hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
+        HomeworkSubmission.student_id == student_id,
+        HomeworkSubmission.is_deleted == False,
+        HomeworkSubmission.score > 0,
+    ).scalar() or 0
+    exam_valid = db.query(func.count(ExamAttempt.id)).filter(
+        ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
+        ExamAttempt.score > 0,
+    ).scalar() or 0
+    total_score = float(avg_hw or 0) * hw_valid + float(avg_exam or 0) * exam_valid
+    total_count = hw_valid + exam_valid
+    avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
 
     # 错题知识点统计
     errors = db.query(ErrorRecord).filter(

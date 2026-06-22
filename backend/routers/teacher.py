@@ -185,7 +185,20 @@ async def get_all_students(
             ErrorRecord.student_id == s.id
         ).scalar() or 0
 
-        avg_score = float((hw_avg + exam_avg) / 2) if hw_avg and exam_avg else float(hw_avg or exam_avg or 0)
+        # 个人均分：有分记录加权平均
+        hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
+            HomeworkSubmission.student_id == s.id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+        ).scalar() or 0
+        exam_valid = db.query(func.count(ExamAttempt.id)).filter(
+            ExamAttempt.student_id == s.id,
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+        ).scalar() or 0
+        total_score = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
+        total_count = hw_valid + exam_valid
+        avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
 
         result.append({
             "id": s.id,
@@ -286,14 +299,33 @@ async def get_teacher_dashboard(
         ExamAttempt.student_id.in_(student_ids_sub)
     ).scalar() or 0
 
-    # 班级平均分
-    avg_hw = db.query(func.avg(HomeworkSubmission.score)).filter(
-        HomeworkSubmission.student_id.in_(student_ids_sub)
-    ).scalar() or 0
-    avg_exam = db.query(func.avg(ExamAttempt.score)).filter(
-        ExamAttempt.student_id.in_(student_ids_sub)
-    ).scalar() or 0
-    class_avg = float((avg_hw + avg_exam) / 2) if avg_hw and avg_exam else float(avg_hw or avg_exam or 0)
+    # 班级平均分：每个学生个人均分 → 班级均分（等权重）
+    from sqlalchemy import union_all
+
+    all_scores = union_all(
+        db.query(
+            HomeworkSubmission.student_id.label("sid"),
+            HomeworkSubmission.score.label("score"),
+        ).filter(
+            HomeworkSubmission.student_id.in_(student_ids_sub),
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.score > 0,
+        ),
+        db.query(
+            ExamAttempt.student_id.label("sid"),
+            ExamAttempt.score.label("score"),
+        ).filter(
+            ExamAttempt.student_id.in_(student_ids_sub),
+            ExamAttempt.is_deleted == False,
+            ExamAttempt.score > 0,
+        ),
+    ).subquery()
+
+    student_avg_sub = db.query(
+        func.avg(all_scores.c.score).label("student_avg")
+    ).group_by(all_scores.c.sid).subquery()
+    class_avg_row = db.query(func.avg(student_avg_sub.c.student_avg)).scalar()
+    class_avg = round(float(class_avg_row), 1) if class_avg_row else 0
 
     # 知识点薄弱热力图
     errors = (

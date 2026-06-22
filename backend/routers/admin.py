@@ -110,9 +110,10 @@ async def admin_dashboard(
             Student.is_deleted == False,
         ).scalar() or 0
 
-        # 月度平均分：合并当月作业和考试的分数
+        # 月度平均分：合并当月作业和考试的分数（等权重 — 先算人均再求班级均）
         hw_scores_m = db.query(
-            HomeworkSubmission.score.label("score")
+            HomeworkSubmission.student_id.label("sid"),
+            HomeworkSubmission.score.label("score"),
         ).join(
             Student, HomeworkSubmission.student_id == Student.id,
         ).filter(
@@ -123,7 +124,8 @@ async def admin_dashboard(
             Student.is_deleted == False,
         )
         exam_scores_m = db.query(
-            ExamAttempt.score.label("score")
+            ExamAttempt.student_id.label("sid"),
+            ExamAttempt.score.label("score"),
         ).join(
             Student, ExamAttempt.student_id == Student.id,
         ).filter(
@@ -134,14 +136,11 @@ async def admin_dashboard(
             Student.is_deleted == False,
         )
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
-        avg_in_month = db.query(func.avg(all_scores_m.c.score)).scalar() or 0
-
-        months_data.append({
-            "month": label,
-            "homework": hw_in_month,
-            "exam": exam_in_month,
-            "avg_score": round(float(avg_in_month), 1),
-        })
+        m_student_avg = db.query(
+            sa_func.avg(all_scores_m.c.score).label("student_avg")
+        ).group_by(all_scores_m.c.sid).subquery()
+        m_row = db.query(sa_func.avg(m_student_avg.c.student_avg)).scalar()
+        avg_in_month = round(float(m_row), 1) if m_row else 0
 
     return {
         "teacher_count": teacher_count,
