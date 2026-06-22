@@ -277,12 +277,13 @@ async def delete_student(
     student.is_deleted = True
     # 从班级中移除（必须先做，因为 FK 依赖）
     db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
+    # 先删 GradingTask（有 FK 引用 homework_submissions）
+    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
     # 级联删除该学生的考试记录、作业记录、错题记录、提交记录
     db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
     db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
     db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
     db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
-    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
     # 作业提交
     db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
     db.commit()

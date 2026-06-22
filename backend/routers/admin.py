@@ -401,11 +401,12 @@ async def admin_delete_student(
 
     student.is_deleted = True
     db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
+    # 先删 GradingTask（有 FK 引用 homework_submissions）
+    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
     db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
     db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
     db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
     db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
-    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
     db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
     db.commit()
     return {"message": f"已删除学生 {student.name}({student.student_id}) 及相关数据"}
