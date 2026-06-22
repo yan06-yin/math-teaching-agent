@@ -45,6 +45,11 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // 自动加载 AI 模型列表（不需要先点"添加模型"）
+  useEffect(() => {
+    loadAiProviders();
+  }, []);
+
   const loadAiProviders = async () => {
     try {
       const r = await axios.get("/api/admin/ai-providers", { headers: headers() });

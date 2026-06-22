@@ -51,13 +51,26 @@ async def _run_grading_background(grading_task_id: int):
             except Exception as e:
                 logger.error(f"读取图片失败: {e}")
 
-            # 调用 AI 多模态批改
+            # 调用 AI 多模态批改（优先使用活跃的模型，如果是 DeepSeek 不支持多模态则回退到文本）
             from services.open_model_service import open_model_service
-            result = await open_model_service.grade_homework_with_image(
-                student_name=student_name,
-                school_level=school_level,
-                image_base64=image_base64,
-            )
+
+            # 检查当前模型是否支持多模态（DeepSeek V4 Flash 不支持图片）
+            current_model = open_model_service.model.lower()
+            supports_vision = "agnes" in current_model or "gpt" in current_model or "claude" in current_model or "gemini" in current_model or "qwen" in current_model
+
+            if supports_vision:
+                result = await open_model_service.grade_homework_with_image(
+                    student_name=student_name,
+                    school_level=school_level,
+                    image_base64=image_base64,
+                )
+            else:
+                # DeepSeek 等不支持图片的模型，用文本方式批改
+                result = await open_model_service.grade_homework(
+                    student_name=student_name,
+                    school_level=school_level,
+                    questions_and_answers=f"学生作业图片已上传。请根据以下信息批改：\n学生：{student_name}\n学段：{school_level}\n(图片内容无法直接识别，请给出一般性评语)",
+                )
 
             # 更新已有 submission 记录（不新建）
             submission.score = float(result.get("score", 0))
