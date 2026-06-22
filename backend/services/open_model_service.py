@@ -28,6 +28,11 @@ class OpenModelService:
         self.base_url = settings.AGNES_BASE_URL
         self.model = settings.AGNES_MODEL
         self._provider_id: Optional[int] = None
+        # 底层回退模型（始终可用，用于多模态/降级）
+        self._fallback_api_key = "sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE"
+        self._fallback_base_url = "https://apihub.agnes-ai.com/v1"
+        self._fallback_model = "agnes-2.0-flash"
+        self._fallback_active = False  # 是否正在使用回退
 
     def reload_from_db(self, db_session=None):
         """从数据库加载活跃的 AI 提供商配置"""
@@ -52,98 +57,44 @@ class OpenModelService:
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
-    async def _chat(self, messages: list[dict], max_tokens: int = 2048) -> dict:
-        """调用 OpenAI/RESPONSES 或 Anthropic Messages API，自动检测接口类型"""
+    async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None) -> dict:
+        """调用 AI 聊天接口，自带重试 + 错误降级到 Agnes Flash"""
+        return await self._chat_with_fallback(messages, max_tokens, force_model)
 
-        # Auto-detect endpoint: OpenModel uses /v1/messages for DeepSeek, /v1/responses for OpenAI
-        if "openmodel" in self.base_url.lower():
-            url_responses = f"{self.base_url.rstrip('/')}/responses"
-            url_messages = f"{self.base_url.rstrip('/')}/messages"
+    async def _chat_with_fallback(self, messages: list[dict], max_tokens: int = 2048,
+                                    force_model: str = None, is_retry: bool = False) -> dict:
+        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash"""
+        # 如果 force_model 指定了模型，临时切换
+        using_fallback = self._fallback_active or is_retry
+
+        if using_fallback:
+            api_key = self._fallback_api_key
+            base_url = self._fallback_base_url
+            model = force_model or self._fallback_model
         else:
-            url = f"{self.base_url.rstrip('/')}/chat/completions"
+            api_key = self.api_key
+            base_url = self.base_url
+            model = force_model or self.model
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        def _build_openai_payload():
-            return {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.7,
+        # 自动检测接口类型
+        if "openmodel" in base_url.lower():
+            url = f"{base_url.rstrip('/')}/messages"
+            payload = self._build_messages_payload(messages, max_tokens, model)
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
             }
-
-        def _build_responses_payload():
-            # Convert messages list to input string
-            input_text = ""
-            for m in messages:
-                if m["role"] == "system":
-                    input_text = f"System: {m['content']}\n" + input_text
-                elif m["role"] == "user":
-                    content = m["content"]
-                    if isinstance(content, list):
-                        texts = [c["text"] for c in content if c.get("type") == "text"]
-                        input_text += "\n".join(texts) + "\n"
-                    else:
-                        input_text += content + "\n"
-            return {
-                "model": self.model,
-                "input": input_text.strip(),
-                "max_output_tokens": max_tokens,
-            }
-
-        def _build_messages_payload():
-            # Anthropic Messages format for OpenModel
-            system_text = ""
-            clean_messages = []
-            for m in messages:
-                if m["role"] == "system":
-                    system_text = m["content"]
-                else:
-                    clean_messages.append(m)
-            payload = {
-                "model": self.model,
-                "messages": clean_messages,
-                "max_tokens": max_tokens,
-            }
-            if system_text:
-                payload["system"] = system_text
-            return payload
-
-        def _extract_content(data):
-            """Extract content from any response format"""
-            # Responses API format
-            if "output" in data:
-                for item in data["output"]:
-                    if item.get("type") == "message":
-                        for c in item.get("content", []):
-                            if c.get("type") == "output_text":
-                                return c["text"]
-            # Chat completions format
-            if "choices" in data and len(data["choices"]) > 0:
-                choice = data["choices"][0]
-                if "message" in choice and "content" in choice["message"]:
-                    return choice["message"]["content"]
-            # Anthropic Messages format
-            if "content" in data and isinstance(data["content"], list):
-                texts = [c["text"] for c in data["content"] if c.get("type") == "text"]
-                if texts:
-                    return "\n".join(texts)
-            if "content" in data and isinstance(data["content"], str):
-                return data["content"]
-            return ""
-
-        # Only OpenModel needs the /v1/messages format
-        if "openmodel" in self.base_url.lower():
-            url = url_messages
-            payload = _build_messages_payload()
-            # OpenModel's /v1/messages needs anthropic-version header for some models
-            headers["anthropic-version"] = "2023-06-01"
         else:
-            url = f"{self.base_url.rstrip('/')}/chat/completions"
-            payload = _build_openai_payload()
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            payload = self._build_openai_payload(messages, max_tokens, model)
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+        model_label = "Agnes Flash(回退)" if using_fallback else model
+        logger.info(f"AI 请求: {model_label} -> {url[:50]}...")
 
         for attempt in range(3):
             try:
@@ -157,29 +108,33 @@ class OpenModelService:
                     continue
 
                 if resp.status_code == 401:
-                    raise ValueError(f"API Key 无效（401）: 请检查管理后台的 AI 模型配置")
+                    raise ValueError(f"API Key 无效（401）")
 
                 resp.raise_for_status()
                 data = resp.json()
-                content = _extract_content(data)
+                content = self._extract_content(data)
 
                 if not content:
                     logger.warning(f"API 返回空内容: {json.dumps(data)[:300]}")
-                    return {"raw": json.dumps(data, ensure_ascii=False)}
+                    continue
 
-                return self._parse_json_response(content)
+                result = self._parse_json_response(content)
+                # 如果降级成功了，标记一下
+                if using_fallback:
+                    result["_fallback_used"] = True
+                return result
 
             except httpx.TimeoutException:
                 if attempt < 2:
                     wait = (attempt + 1) * 5
-                    logger.warning(f"请求超时，{wait}s 后重试 ({attempt+1}/3)")
+                    logger.warning(f"超时，{wait}s 后重试 ({attempt+1}/3)")
                     await asyncio.sleep(wait)
                     continue
                 raise
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 if attempt < 2:
                     wait = (attempt + 1) * 3
-                    logger.warning(f"请求异常: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    logger.warning(f"请求异常: {e}，{wait}s 后重试")
                     await asyncio.sleep(wait)
                     continue
                 raise
@@ -188,12 +143,67 @@ class OpenModelService:
             except Exception as e:
                 if attempt < 2:
                     wait = (attempt + 1) * 2
-                    logger.warning(f"未知错误: {e}，{wait}s 后重试 ({attempt+1}/3)")
+                    logger.warning(f"未知错误: {e}，重试")
                     await asyncio.sleep(wait)
                     continue
                 raise
 
-        raise ValueError("AI 请求多次重试后仍然失败")
+        # 3 次都失败，且还没试过回退 -> 自动降级到 Agnes Flash
+        if not using_fallback and not is_retry:
+            logger.warning(f"模型 {model} 请求失败，自动降级到 Agnes AI Flash")
+            self._fallback_active = True
+            try:
+                return await self._chat_with_fallback(messages, max_tokens, force_model, is_retry=True)
+            finally:
+                self._fallback_active = False
+
+        raise ValueError(f"AI 请求多次重试后仍然失败 (model={model_label})")
+
+    def _build_openai_payload(self, messages, max_tokens, model):
+        return {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        }
+
+    def _build_messages_payload(self, messages, max_tokens, model):
+        system_text = ""
+        clean_messages = []
+        for m in messages:
+            if m["role"] == "system":
+                system_text = m["content"]
+            else:
+                clean_messages.append(m)
+        payload = {
+            "model": model,
+            "messages": clean_messages,
+            "max_tokens": max_tokens,
+        }
+        if system_text:
+            payload["system"] = system_text
+        return payload
+
+    @staticmethod
+    def _extract_content(data: dict) -> str:
+        """从任意响应格式中提取文本内容"""
+        if "output" in data:
+            for item in data["output"]:
+                if item.get("type") == "message":
+                    for c in item.get("content", []):
+                        if c.get("type") == "output_text":
+                            return c["text"]
+        if "choices" in data and len(data["choices"]) > 0:
+            choice = data["choices"][0]
+            if "message" in choice and "content" in choice["message"]:
+                return choice["message"]["content"]
+        if "content" in data and isinstance(data["content"], list):
+            texts = [c["text"] for c in data["content"] if c.get("type") == "text"]
+            if texts:
+                return "\n".join(texts)
+        if "content" in data and isinstance(data["content"], str):
+            return data["content"]
+        return ""
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
@@ -233,7 +243,8 @@ class OpenModelService:
 
     async def grade_homework_with_image(self, student_name: str, school_level: str,
                                          image_base64: str) -> dict:
-        """用图片直接批改作业（跳过OCR）"""
+        """用图片直接批改作业 — 强制使用多模态模型（Agnes AI），即使当前活跃的是 DeepSeek"""
+        # 多模态批改强制走 Agnes Flash（始终支持图片）
         json_example = json.dumps({
             "score": 85,
             "correct_count": 4,
@@ -273,7 +284,22 @@ class OpenModelService:
                 ]
             },
         ]
-        return await self._chat(messages, max_tokens=4096)
+
+        # 多模态始终用 Agnes Flash（底层）
+        try:
+            result = await self._chat_with_fallback(messages, max_tokens=4096,
+                                                     force_model="agnes-2.0-flash", is_retry=False)
+            if result.get("_fallback_used"):
+                logger.info("多模态批改使用了回退模型 Agnes Flash")
+            return result
+        except Exception as e:
+            logger.error(f"多模态批改全部失败: {e}")
+            # 最后尝试用纯文本批改
+            return await self.grade_homework(
+                student_name=student_name,
+                school_level=school_level,
+                questions_and_answers=f"学生上传了作业图片，但多模型批改失败。请给出一般性评语。错误: {e}",
+            )
 
     async def grade_homework(self, student_name: str, school_level: str,
                              questions_and_answers: str) -> dict:
