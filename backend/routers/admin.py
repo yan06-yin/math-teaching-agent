@@ -34,26 +34,38 @@ async def admin_dashboard(
         Student.is_deleted == False,
     ).scalar() or 0
     assignment_count = db.query(func.count(Assignment.id)).scalar() or 0
-    hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
+    hw_count = db.query(func.count(HomeworkSubmission.id)).join(
+        Student, HomeworkSubmission.student_id == Student.id,
+    ).filter(
         HomeworkSubmission.is_deleted == False,
+        Student.is_deleted == False,
     ).scalar() or 0
-    exam_count = db.query(func.count(ExamAttempt.id)).filter(
+    exam_count = db.query(func.count(ExamAttempt.id)).join(
+        Student, ExamAttempt.student_id == Student.id,
+    ).filter(
         ExamAttempt.is_deleted == False,
+        Student.is_deleted == False,
     ).scalar() or 0
     # 计算全局总分均值：union_all 合并作业和考试的有分记录，加权平均
     from sqlalchemy import union_all
 
     hw_scores = db.query(
         HomeworkSubmission.score.label("score")
+    ).join(
+        Student, HomeworkSubmission.student_id == Student.id,
     ).filter(
         HomeworkSubmission.is_deleted == False,
         HomeworkSubmission.score > 0,
+        Student.is_deleted == False,
     )
     exam_scores = db.query(
         ExamAttempt.score.label("score")
+    ).join(
+        Student, ExamAttempt.student_id == Student.id,
     ).filter(
         ExamAttempt.is_deleted == False,
         ExamAttempt.score > 0,
+        Student.is_deleted == False,
     )
     all_scores = union_all(hw_scores, exam_scores).subquery()
     raw_avg = db.query(func.avg(all_scores.c.score)).scalar() or 0
@@ -73,34 +85,46 @@ async def admin_dashboard(
             year -= 1
         label = f"{year}-{month:02d}"
 
-        hw_in_month = db.query(func.count(HomeworkSubmission.id)).filter(
+        hw_in_month = db.query(func.count(HomeworkSubmission.id)).join(
+            Student, HomeworkSubmission.student_id == Student.id,
+        ).filter(
             extract("year", HomeworkSubmission.created_at) == year,
             extract("month", HomeworkSubmission.created_at) == month,
             HomeworkSubmission.is_deleted == False,
+            Student.is_deleted == False,
         ).scalar() or 0
 
-        exam_in_month = db.query(func.count(ExamAttempt.id)).filter(
+        exam_in_month = db.query(func.count(ExamAttempt.id)).join(
+            Student, ExamAttempt.student_id == Student.id,
+        ).filter(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
             ExamAttempt.is_deleted == False,
+            Student.is_deleted == False,
         ).scalar() or 0
 
         # 月度平均分：合并当月作业和考试的分数
         hw_scores_m = db.query(
             HomeworkSubmission.score.label("score")
+        ).join(
+            Student, HomeworkSubmission.student_id == Student.id,
         ).filter(
             extract("year", HomeworkSubmission.created_at) == year,
             extract("month", HomeworkSubmission.created_at) == month,
             HomeworkSubmission.is_deleted == False,
             HomeworkSubmission.score > 0,
+            Student.is_deleted == False,
         )
         exam_scores_m = db.query(
             ExamAttempt.score.label("score")
+        ).join(
+            Student, ExamAttempt.student_id == Student.id,
         ).filter(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
             ExamAttempt.is_deleted == False,
             ExamAttempt.score > 0,
+            Student.is_deleted == False,
         )
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
         avg_in_month = db.query(func.avg(all_scores_m.c.score)).scalar() or 0
@@ -398,8 +422,11 @@ async def list_exam_records(
     db: Session = Depends(get_db),
 ):
     """查看考试记录"""
-    exams = db.query(ExamAttempt).filter(
+    exams = db.query(ExamAttempt).join(
+        Student, ExamAttempt.student_id == Student.id,
+    ).filter(
         ExamAttempt.is_deleted == False,
+        Student.is_deleted == False,
     ).order_by(ExamAttempt.created_at.desc()).limit(200).all()
     result = []
     for e in exams:
