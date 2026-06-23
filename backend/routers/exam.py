@@ -23,13 +23,13 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
     """后台执行考试批改（使用独立连接，不依赖请求 session）"""
     bg_db = SessionLocal()
     try:
-        task = bg_db.query(GradingTask).get(grading_task_id)
+        task = bg_db.get(GradingTask, grading_task_id)
         if task:
             task.status = "processing"
             bg_db.commit()
 
         graded, details = await grade_exam(bg_db, exam_id, answers)
-        task = bg_db.query(GradingTask).get(grading_task_id)
+        task = bg_db.get(GradingTask, grading_task_id)
         if task:
             task.status = "done"
             task.result_json = {
@@ -50,7 +50,7 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
             pass
         logger.error(f"后台考试批改失败: {e}")
         try:
-            task = bg_db.query(GradingTask).get(grading_task_id)
+            task = bg_db.get(GradingTask, grading_task_id)
             if task:
                 task.status = "error"
                 task.error_message = str(e)
@@ -71,7 +71,7 @@ async def generate_exam(
 ):
     """根据学生情况生成试卷 — 返回 task_id，后台异步出题"""
     student_id = current_user[0].id
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
@@ -116,12 +116,12 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
     """后台生成试卷（使用独立 session，不依赖请求 session）"""
     bg_db = SessionLocal()
     try:
-        exam = bg_db.query(ExamAttempt).get(exam_id)
+        exam = bg_db.get(ExamAttempt, exam_id)
         if exam and not exam.questions_json:
             result = await generate_and_save_exam(bg_db, exam.student_id, exam_config, exam_id)
             # 更新任务（result 即已更新的 exam 记录）
             exam_refreshed = result
-            task = bg_db.query(GradingTask).get(task_id)
+            task = bg_db.get(GradingTask, task_id)
             if task:
                 task.status = "done"
                 task.result_json = {"exam_id": exam_refreshed.id, "questions": exam_refreshed.questions_json}
@@ -133,7 +133,7 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
         except:
             pass
         try:
-            task = bg_db.query(GradingTask).get(task_id)
+            task = bg_db.get(GradingTask, task_id)
             if task:
                 task.status = "error"
                 task.error_message = str(e)
@@ -170,14 +170,6 @@ async def get_exam_generate_status(
     if task and task.status == "error":
         return {"status": "error", "error": task.error_message}
 
-    # Check all recent tasks for this student (not just 'exam_generate' type)
-    all_tasks = db.query(GradingTask).filter(
-        GradingTask.student_id == student_id,
-    ).order_by(GradingTask.created_at.desc()).limit(5).all()
-    for t in all_tasks:
-        if t.status == "error" and t.error_message:
-            return {"status": "error", "error": t.error_message}
-
     return {"status": "generating", "exam_id": exam.id}
 
 
@@ -191,7 +183,7 @@ async def submit_exam(
     """提交答卷 — 保存答案，触发异步批改"""
     student_id = current_user[0].id
 
-    exam = db.query(ExamAttempt).get(exam_id)
+    exam = db.get(ExamAttempt, exam_id)
     if not exam or exam.student_id != student_id:
         raise HTTPException(status_code=404, detail="考试不存在")
 

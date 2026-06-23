@@ -63,7 +63,7 @@ async def get_error_summary(
         )
         recent_errors = []
         for er in recent:
-            student = db.query(Student).get(er.student_id)
+            student = db.get(Student, er.student_id)
             recent_errors.append({
                 "student_name": student.name if student else "未知",
                 "student_id": er.student_id,
@@ -101,7 +101,7 @@ async def get_knowledge_point_errors(
 
     result = []
     for er in errors:
-        student = db.query(Student).get(er.student_id)
+        student = db.get(Student, er.student_id)
         result.append({
             "student_id": er.student_id,
             "student_name": student.name if student else "未知",
@@ -183,31 +183,6 @@ async def get_all_students(
             ExamAttempt.student_answers != None,
         ).scalar() or 0
 
-        # 错题数
-        error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
-            ErrorRecord.student_id == s.id
-        ).scalar() or 0
-
-        # 薄弱知识点数
-        weak_count = db.query(func.count(func.distinct(ErrorRecord.knowledge_point))).filter(
-            ErrorRecord.student_id == s.id
-        ).scalar() or 0
-
-        # 个人均分：已批改记录加权平均
-        total_score = float(hw_avg or 0) * hw_count + float(exam_avg or 0) * exam_count
-        total_count = hw_count + exam_count
-        avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
-
-        # 错题数
-        error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
-            ErrorRecord.student_id == s.id
-        ).scalar() or 0
-
-        # 薄弱知识点数
-        weak_count = db.query(func.count(func.distinct(ErrorRecord.knowledge_point))).filter(
-            ErrorRecord.student_id == s.id
-        ).scalar() or 0
-
         # 个人均分：已批改记录加权平均
         hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
             HomeworkSubmission.student_id == s.id,
@@ -222,6 +197,16 @@ async def get_all_students(
         total_score = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_count = hw_valid + exam_valid
         avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
+
+        # 错题数
+        error_count = db.query(func.sum(ErrorRecord.error_count)).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
+
+        # 薄弱知识点数
+        weak_count = db.query(func.count(func.distinct(ErrorRecord.knowledge_point))).filter(
+            ErrorRecord.student_id == s.id
+        ).scalar() or 0
 
         result.append({
             "id": s.id,
@@ -251,7 +236,7 @@ async def get_student_full_info(
     db: Session = Depends(get_db),
 ):
     """教师查看某个学生的完整信息"""
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     return {
@@ -270,7 +255,7 @@ async def delete_student(
     db: Session = Depends(get_db),
 ):
     """软删除学生"""
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
@@ -390,7 +375,7 @@ async def get_teacher_dashboard(
 
     top_students = []
     for se in student_errors:
-        student = db.query(Student).get(se.student_id)
+        student = db.get(Student, se.student_id)
         top_students.append({
             "student_id": se.student_id,
             "name": student.name if student else "未知",
@@ -415,7 +400,7 @@ async def get_student_errors(
     db: Session = Depends(get_db),
 ):
     """查看单个学生的错题详情"""
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 

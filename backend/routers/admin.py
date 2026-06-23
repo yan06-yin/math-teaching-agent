@@ -141,6 +141,13 @@ async def admin_dashboard(
         m_row = db.query(func.avg(m_student_avg.c.student_avg)).scalar()
         avg_in_month = round(float(m_row), 1) if m_row else 0
 
+        months_data.append({
+            "month": label,
+            "homework_count": hw_in_month,
+            "exam_count": exam_in_month,
+            "avg_score": avg_in_month,
+        })
+
     return {
         "teacher_count": teacher_count,
         "class_count": class_count,
@@ -213,7 +220,6 @@ async def delete_teacher(
     db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
 
     teacher.is_deleted = True
-    db.commit()
 
     # 硬删除该教师相关的考试记录（考试是独立的，不依赖教师ID，但可以通过学生关联清理）
     # 删除该教师班级下所有学生的考试记录
@@ -241,7 +247,7 @@ async def list_all_classes(
     classes = db.query(Class).order_by(Class.created_at.desc()).all()
     result = []
     for cls in classes:
-        teacher = db.query(Teacher).get(cls.teacher_id)
+        teacher = db.get(Teacher, cls.teacher_id)
         student_count = db.query(func.count(ClassStudent.id)).filter(ClassStudent.class_id == cls.id).scalar() or 0
         result.append({
             "id": cls.id,
@@ -262,7 +268,7 @@ async def admin_delete_class(
     db: Session = Depends(get_db),
 ):
     """管理员删除班级"""
-    cls = db.query(Class).get(class_id)
+    cls = db.get(Class, class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
     db.delete(cls)
@@ -287,7 +293,7 @@ async def list_all_students(
         cs = db.query(ClassStudent).filter(ClassStudent.student_id == s.id).first()
         class_name = None
         if cs:
-            cls = db.query(Class).get(cs.class_id)
+            cls = db.get(Class, cs.class_id)
             class_name = cls.name if cls else None
 
         hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
@@ -352,10 +358,10 @@ async def admin_assign_student(
     db: Session = Depends(get_db),
 ):
     """管理员分配学生到班级"""
-    student = db.query(Student).get(body.student_id)
+    student = db.get(Student, body.student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
-    cls = db.query(Class).get(body.class_id)
+    cls = db.get(Class, body.class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
 
@@ -395,7 +401,7 @@ async def admin_delete_student(
     db: Session = Depends(get_db),
 ):
     """管理员软删除学生（级联清理所有关联数据）"""
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
@@ -423,14 +429,14 @@ async def list_all_assignments(
     assignments = db.query(Assignment).order_by(Assignment.created_at.desc()).all()
     result = []
     for a in assignments:
-        teacher = db.query(Teacher).get(a.teacher_id)
+        teacher = db.get(Teacher, a.teacher_id)
         sub_count = db.query(func.count(AssignmentSubmission.id)).filter(
             AssignmentSubmission.assignment_id == a.id
         ).scalar() or 0
 
         class_name = None
         if a.class_id:
-            cls = db.query(Class).get(a.class_id)
+            cls = db.get(Class, a.class_id)
             class_name = cls.name if cls else "广播作业"
 
         result.append({
@@ -461,7 +467,7 @@ async def list_exam_records(
     ).order_by(ExamAttempt.created_at.desc()).limit(200).all()
     result = []
     for e in exams:
-        student = db.query(Student).get(e.student_id)
+        student = db.get(Student, e.student_id)
         result.append({
             "id": e.id,
             "student_name": student.name if student else "未知",
@@ -542,7 +548,7 @@ async def update_ai_provider(
 ):
     """更新 AI 模型配置"""
     from models import AIProvider
-    provider = db.query(AIProvider).get(provider_id)
+    provider = db.get(AIProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="配置不存在")
 
@@ -571,7 +577,7 @@ async def delete_ai_provider(
 ):
     """删除 AI 模型配置"""
     from models import AIProvider
-    provider = db.query(AIProvider).get(provider_id)
+    provider = db.get(AIProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="配置不存在")
     was_active = provider.is_active

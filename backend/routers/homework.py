@@ -23,19 +23,19 @@ async def _run_grading_background(grading_task_id: int):
     """后台执行批改（使用独立 session，不依赖 HTTP 请求）"""
     bg_db = SessionLocal()
     try:
-        task = bg_db.query(GradingTask).get(grading_task_id)
+        task = bg_db.get(GradingTask, grading_task_id)
         if not task:
             return
 
         task.status = "processing"
         bg_db.commit()
 
-        submission = bg_db.query(HomeworkSubmission).get(task.submission_id)
+        submission = bg_db.get(HomeworkSubmission, task.submission_id)
         if submission:
             # 直接调用 AI 批改，不再走 process_homework（process_homework 会重复创建记录）
             from models import Student
             import base64
-            student = bg_db.query(Student).get(task.student_id)
+            student = bg_db.get(Student, task.student_id)
             school_level = student.school_level if student else "初中"
             student_name = student.name if student else f"学生{task.student_id}"
 
@@ -117,12 +117,12 @@ async def _run_grading_background(grading_task_id: int):
     except Exception as e:
         bg_db.rollback()
         logger.error(f"后台批改失败: {e}")
-        task = bg_db.query(GradingTask).get(grading_task_id)
+        task = bg_db.get(GradingTask, grading_task_id)
         if task:
             task.status = "error"
             task.error_message = str(e)
             if task.submission_id:
-                subm = bg_db.query(HomeworkSubmission).get(task.submission_id)
+                subm = bg_db.get(HomeworkSubmission, task.submission_id)
                 if subm:
                     subm.status = "error"
             bg_db.commit()
@@ -139,12 +139,12 @@ async def upload_homework(
 ):
     """上传作业照片 → 立即返回 task_id，后台异步批改"""
     student_id = current_user[0].id
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
     # 保存图片
-    ext = os.path.splitext(file.filename)[1] or ".jpg"
+    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
     filename = f"{uuid.uuid4().hex}{ext}"
     filepath = os.path.join(settings.UPLOAD_DIR, filename)
 
@@ -175,7 +175,7 @@ async def upload_homework(
     db.refresh(submission)
 
     # 后台启动异步批改
-    asyncio.create_task(_run_grading_background(SessionLocal(), grading_task.id))
+    asyncio.create_task(_run_grading_background(grading_task.id))
 
     return {
         "task_id": grading_task.id,

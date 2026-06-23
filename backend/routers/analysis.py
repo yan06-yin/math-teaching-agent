@@ -24,7 +24,7 @@ async def get_student_profile(
     if student_id != auth_student_id:
         raise HTTPException(status_code=403, detail="只能查看自己的数据")
 
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 

@@ -59,7 +59,7 @@ async def generate_and_save_exam(db: Session, student_id: int,
 
         # 如果有 exam_id，更新已有记录；否则新建
         if exam_id:
-            exam = db.query(ExamAttempt).get(exam_id)
+            exam = db.get(ExamAttempt, exam_id)
             if exam:
                 exam.questions_json = questions
                 exam.exam_config_json = exam_config
@@ -87,13 +87,13 @@ async def generate_and_save_exam(db: Session, student_id: int,
 
 async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[ExamAttempt, list]:
     """批改考试并生成诊断报告，返回 (exam, details_list)"""
-    exam = db.query(ExamAttempt).get(exam_id)
+    exam = db.get(ExamAttempt, exam_id)
     exam.student_answers = answers
     db.commit()
 
     try:
         # 调用 Agnes AI 批改
-        student = db.query(Student).get(exam.student_id)
+        student = db.get(Student, exam.student_id)
         questions_str = "\n".join(
             f"Q{i+1}: {q.get('question', '')}\n答案: {q.get('answer', '')}"
             for i, q in enumerate(exam.questions_json)

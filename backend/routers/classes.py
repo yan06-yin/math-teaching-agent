@@ -84,8 +84,8 @@ async def my_class(
     if not cs:
         return None
 
-    cls = db.query(Class).get(cs.class_id)
-    teacher = db.query(Teacher).get(cls.teacher_id) if cls else None
+    cls = db.get(Class, cs.class_id)
+    teacher = db.get(Teacher, cls.teacher_id) if cls else None
 
     return {
         "class_id": cls.id,
@@ -225,7 +225,7 @@ async def deactivate_invite_code(
     db: Session = Depends(get_db),
 ):
     """停用邀请码"""
-    code = db.query(InviteCode).get(code_id)
+    code = db.get(InviteCode, code_id)
     if not code:
         raise HTTPException(status_code=404, detail="邀请码不存在")
 
@@ -252,7 +252,7 @@ async def add_student_manual(
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
 
-    student = db.query(Student).get(body.student_id)
+    student = db.get(Student, body.student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
@@ -339,7 +339,7 @@ async def join_class(
     invite.used_count += 1
     db.commit()
 
-    cls = db.query(Class).get(invite.class_id)
+    cls = db.get(Class, invite.class_id)
     return {
         "message": f"成功加入班级 {cls.name}",
         "class_id": cls.id,

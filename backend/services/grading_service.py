@@ -70,7 +70,7 @@ async def process_homework(db: Session, student_id: int, photo_path: str,
 
     try:
         from models import Student
-        student = db.query(Student).get(student_id)
+        student = db.get(Student, student_id)
         school_level = student.school_level if student else "初中"
         student_name = student.name if student else f"学生{student_id}"
 

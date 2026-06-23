@@ -233,7 +233,7 @@ async def set_password(
     db: Session = Depends(get_db),
 ):
     """学生设置密码（针对旧数据中无密码的账号）"""
-    student = db.query(Student).get(student_id)
+    student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 

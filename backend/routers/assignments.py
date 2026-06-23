@@ -81,7 +81,7 @@ async def list_assignments(
         ).count()
         class_name = None
         if a.class_id:
-            cls = db.query(Class).get(a.class_id)
+            cls = db.get(Class, a.class_id)
             class_name = cls.name if cls else None
         result.append({
             "id": a.id,
@@ -103,7 +103,7 @@ async def view_submissions(
     db: Session = Depends(get_db),
 ):
     """教师查看某次作业的提交情况"""
-    assignment = db.query(Assignment).get(assignment_id)
+    assignment = db.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="作业不存在")
 
@@ -115,7 +115,7 @@ async def view_submissions(
     )
     result = []
     for s in subs:
-        student = db.query(Student).get(s.student_id)
+        student = db.get(Student, s.student_id)
         result.append({
             "student_id": s.student_id,
             "student_name": student.name if student else "未知",
@@ -163,7 +163,7 @@ async def student_assignments(
 
         class_name = None
         if a.class_id:
-            cls = db.query(Class).get(a.class_id)
+            cls = db.get(Class, a.class_id)
             class_name = cls.name if cls else None
 
         result.append({
@@ -192,7 +192,7 @@ async def submit_assignment(
 ):
     """学生提交作业"""
     student_id = current_user[0].id
-    assignment = db.query(Assignment).get(assignment_id)
+    assignment = db.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="作业不存在")
 

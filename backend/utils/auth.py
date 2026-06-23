@@ -40,9 +40,9 @@ def get_current_user(
         raise credentials_exception
 
     if user_type == "student":
-        user = db.query(Student).get(int(user_id))
+        user = db.get(Student, int(user_id))
     elif user_type == "teacher":
-        user = db.query(Teacher).get(int(user_id))
+        user = db.get(Teacher, int(user_id))
     else:
         raise credentials_exception
 
