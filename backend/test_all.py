@@ -5,6 +5,7 @@
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from config import settings
 from database import init_db, SessionLocal
 from models import *
 from passlib.context import CryptContext
@@ -14,12 +15,15 @@ import secrets, string
 
 P = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
-# 清库
-for f in ["database/math_teaching.db", "test.db"]:
+# 清库：使用 settings.DB_PATH 确保路径正确
+db_path = settings.DB_PATH
+for f in [db_path, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database", "math_teaching.db"), "test.db"]:
     try:
-        os.remove(f)
-    except:
-        pass
+        if os.path.exists(f):
+            os.remove(f)
+            print(f"  已删除: {f}")
+    except Exception as e:
+        print(f"  跳过删除 {f}: {e}")
 
 init_db()
 db = SessionLocal()

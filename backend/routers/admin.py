@@ -223,7 +223,7 @@ async def delete_teacher(
 
     # 硬删除该教师相关的考试记录（考试是独立的，不依赖教师ID，但可以通过学生关联清理）
     # 删除该教师班级下所有学生的考试记录
-    student_ids = db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).subquery()
+    student_ids = db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).scalar_subquery()
     if class_ids:
         db.query(ExamAttempt).filter(ExamAttempt.student_id.in_(student_ids)).delete(synchronize_session=False)
         db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)

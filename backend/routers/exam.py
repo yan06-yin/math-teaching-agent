@@ -46,8 +46,8 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
     except Exception as e:
         try:
             bg_db.rollback()
-        except:
-            pass
+        except Exception:
+            logger.warning(f"考试批改回滚失败: {e}")
         logger.error(f"后台考试批改失败: {e}")
         try:
             task = bg_db.get(GradingTask, grading_task_id)
@@ -55,10 +55,8 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
                 task.status = "error"
                 task.error_message = str(e)
                 bg_db.commit()
-        except:
-            pass
-        import traceback
-        traceback.print_exc()
+        except Exception as inner_e:
+            logger.warning(f"更新考试任务状态失败: {inner_e}")
     finally:
         bg_db.close()
 
@@ -130,19 +128,17 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
     except Exception as e:
         try:
             bg_db.rollback()
-        except:
-            pass
+        except Exception:
+            logger.warning(f"出题回滚失败: {e}")
         try:
             task = bg_db.get(GradingTask, task_id)
             if task:
                 task.status = "error"
                 task.error_message = str(e)
                 bg_db.commit()
-        except:
-            pass
+        except Exception as inner_e:
+            logger.warning(f"更新出题任务状态失败: {inner_e}")
         logger.error(f"后台出题失败: {e}")
-        import traceback
-        traceback.print_exc()
     finally:
         bg_db.close()
 

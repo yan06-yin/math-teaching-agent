@@ -1,4 +1,4 @@
-"""
+﻿"""
 教师端路由 — 错题汇总、班级分析、知识点钻取
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -138,7 +138,7 @@ async def get_all_students(
     student_ids = (
         db.query(ClassStudent.student_id)
         .filter(ClassStudent.class_id.in_(teacher_class_ids))
-        .subquery()
+        .scalar_subquery()
     )
 
     # 查询学生（可进一步按 class_id 筛选）
@@ -151,7 +151,7 @@ async def get_all_students(
         cs_student_ids = (
             db.query(ClassStudent.student_id)
             .filter(ClassStudent.class_id == class_id)
-            .subquery()
+            .scalar_subquery()
         )
         query = db.query(Student).filter(Student.id.in_(cs_student_ids), Student.is_deleted == False)
 
@@ -293,7 +293,7 @@ async def get_teacher_dashboard(
     student_ids_sub = (
         db.query(ClassStudent.student_id)
         .filter(ClassStudent.class_id.in_(teacher_class_ids))
-        .subquery()
+        .scalar_subquery()
     )
 
     total_students = db.query(func.count(Student.id)).filter(
