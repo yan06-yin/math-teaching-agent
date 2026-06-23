@@ -128,8 +128,7 @@ class ClassInfo(BaseModel):
     student_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class InviteCodeGenerate(BaseModel):
@@ -146,8 +145,7 @@ class InviteCodeInfo(BaseModel):
     expires_at: Optional[datetime]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class JoinClass(BaseModel):
@@ -182,5 +180,4 @@ class TeacherInfo(BaseModel):
     class_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

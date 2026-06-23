@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
-from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission, Class, ClassStudent
+from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission, Class, ClassStudent, GradingTask
 from utils.auth import require_teacher
 from utils.knowledge_mapper import normalize_knowledge_point
 

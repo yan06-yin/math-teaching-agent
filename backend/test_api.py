@@ -13,7 +13,7 @@ from config import settings
 # 测试用数据库（内存 SQLite）
 settings.DATABASE_URL = "sqlite:///./test.db"
 
-from database import init_db, SessionLocal
+from database import init_db, SessionLocal, engine
 from models import Base, Student, Class, ClassStudent, InviteCode
 from main import app
 
@@ -23,7 +23,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_db():
     """每个测试前重建表"""
-    Base.metadata.drop_all(bind=app.state._engine if hasattr(app, 'state') else None)
+    Base.metadata.drop_all(bind=engine)
     init_db()
     yield
     # 清理测试数据库

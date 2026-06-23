@@ -73,6 +73,30 @@ async def list_classes(
     return result
 
 
+@router.get("/my")
+async def my_class(
+    current_user=Depends(require_student),
+    db: Session = Depends(get_db),
+):
+    """查看自己所在的班级"""
+    student = current_user[0]
+    cs = db.query(ClassStudent).filter(ClassStudent.student_id == student.id).first()
+    if not cs:
+        return None
+
+    cls = db.query(Class).get(cs.class_id)
+    teacher = db.query(Teacher).get(cls.teacher_id) if cls else None
+
+    return {
+        "class_id": cls.id,
+        "class_name": cls.name,
+        "school_level": cls.school_level,
+        "teacher_name": teacher.name if teacher else "未知",
+        "joined_via": cs.joined_via,
+        "joined_at": cs.joined_at.isoformat() if cs.joined_at else None,
+    }
+
+
 @router.get("/{class_id}")
 async def get_class_detail(
     class_id: int,
@@ -320,28 +344,4 @@ async def join_class(
         "message": f"成功加入班级 {cls.name}",
         "class_id": cls.id,
         "class_name": cls.name,
-    }
-
-
-@router.get("/my")
-async def my_class(
-    current_user=Depends(require_student),
-    db: Session = Depends(get_db),
-):
-    """查看自己所在的班级"""
-    student = current_user[0]
-    cs = db.query(ClassStudent).filter(ClassStudent.student_id == student.id).first()
-    if not cs:
-        return None
-
-    cls = db.query(Class).get(cs.class_id)
-    teacher = db.query(Teacher).get(cls.teacher_id) if cls else None
-
-    return {
-        "class_id": cls.id,
-        "class_name": cls.name,
-        "school_level": cls.school_level,
-        "teacher_name": teacher.name if teacher else "未知",
-        "joined_via": cs.joined_via,
-        "joined_at": cs.joined_at.isoformat() if cs.joined_at else None,
     }
