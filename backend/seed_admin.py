@@ -8,11 +8,12 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import init_db, SessionLocal
-from models import Teacher
+from models import Teacher, AIProvider
 import hashlib
 import secrets
 from sqlalchemy import text
 from config import settings
+from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 

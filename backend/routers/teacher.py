@@ -90,10 +90,20 @@ async def get_knowledge_point_errors(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
-    """钻取：获取特定知识点的全部错题详情"""
+    """钻取：获取特定知识点的全部错题详情（仅自己班级学生）"""
+    teacher = current_user[0]
+    teacher_class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher.id).all()]
+    student_ids = [-1]
+    if teacher_class_ids:
+        student_ids = [r[0] for r in db.query(ClassStudent.student_id)
+                       .filter(ClassStudent.class_id.in_(teacher_class_ids)).all()]
+
     errors = (
         db.query(ErrorRecord)
-        .filter(ErrorRecord.knowledge_point == knowledge_point)
+        .filter(
+            ErrorRecord.knowledge_point == knowledge_point,
+            ErrorRecord.student_id.in_(student_ids),
+        )
         .order_by(ErrorRecord.last_error_date.desc())
         .limit(limit)
         .all()
@@ -235,10 +245,19 @@ async def get_student_full_info(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """教师查看某个学生的完整信息"""
+    """教师查看某个学生的完整信息（仅限自己班级的学生）"""
+    teacher = current_user[0]
     student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 验证归属
+    cs = db.query(ClassStudent).join(Class, ClassStudent.class_id == Class.id).filter(
+        ClassStudent.student_id == student_id,
+        Class.teacher_id == teacher.id,
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=403, detail="只能查看自己班级的学生")
     return {
         "id": student.id,
         "name": student.name,
@@ -254,10 +273,19 @@ async def delete_student(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """软删除学生"""
+    """软删除学生（只允许删除自己班级的学生）"""
+    teacher = current_user[0]
     student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 验证该学生属于该教师的班级
+    cs = db.query(ClassStudent).join(Class, ClassStudent.class_id == Class.id).filter(
+        ClassStudent.student_id == student_id,
+        Class.teacher_id == teacher.id,
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=403, detail="只能删除自己班级的学生")
 
     student.is_deleted = True
     # 从班级中移除（必须先做，因为 FK 依赖）
@@ -399,10 +427,19 @@ async def get_student_errors(
     current_user=Depends(require_teacher),
     db: Session = Depends(get_db),
 ):
-    """查看单个学生的错题详情"""
+    """查看单个学生的错题详情（仅限自己班级的学生）"""
+    teacher = current_user[0]
     student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 验证归属
+    cs = db.query(ClassStudent).join(Class, ClassStudent.class_id == Class.id).filter(
+        ClassStudent.student_id == student_id,
+        Class.teacher_id == teacher.id,
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=403, detail="只能查看自己班级的学生")
 
     errors = (
         db.query(ErrorRecord)

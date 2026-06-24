@@ -196,6 +196,7 @@ async def get_grading_status(
     submission = db.query(HomeworkSubmission).filter(
         HomeworkSubmission.id == submission_id,
         HomeworkSubmission.student_id == student_id,
+        HomeworkSubmission.is_deleted == False,
     ).first()
     if not submission:
         raise HTTPException(status_code=404, detail="作业不存在")
@@ -240,7 +241,7 @@ async def my_homework(
     student_id = current_user[0].id
     submissions = (
         db.query(HomeworkSubmission)
-        .filter(HomeworkSubmission.student_id == student_id)
+        .filter(HomeworkSubmission.student_id == student_id, HomeworkSubmission.is_deleted == False)
         .order_by(HomeworkSubmission.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -274,6 +275,7 @@ async def homework_result(
         .filter(
             HomeworkSubmission.id == submission_id,
             HomeworkSubmission.student_id == student_id,
+            HomeworkSubmission.is_deleted == False,
         )
         .first()
     )

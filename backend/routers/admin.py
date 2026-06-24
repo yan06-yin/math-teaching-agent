@@ -206,7 +206,10 @@ async def delete_teacher(
 
     # 级联删除班级相关的学生关联
     class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher_id).all()]
+    student_ids = []
     if class_ids:
+        # 先取出学生 ID，再删 ClassStudent（否则 student_ids 为空）
+        student_ids = [r[0] for r in db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).all()]
         db.query(ClassStudent).filter(ClassStudent.class_id.in_(class_ids)).delete(synchronize_session=False)
         db.query(InviteCode).filter(InviteCode.class_id.in_(class_ids)).delete(synchronize_session=False)
 
@@ -221,16 +224,18 @@ async def delete_teacher(
 
     teacher.is_deleted = True
 
-    # 硬删除该教师相关的考试记录（考试是独立的，不依赖教师ID，但可以通过学生关联清理）
-    # 删除该教师班级下所有学生的考试记录
-    student_ids = db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).scalar_subquery()
-    if class_ids:
+    # 硬删除该教师班级下所有学生的相关记录
+    if student_ids:
+        db.query(GradingTask).filter(GradingTask.student_id.in_(student_ids)).delete(synchronize_session=False)
         db.query(ExamAttempt).filter(ExamAttempt.student_id.in_(student_ids)).delete(synchronize_session=False)
         db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)
         db.query(ErrorRecord).filter(ErrorRecord.student_id.in_(student_ids)).delete(synchronize_session=False)
+        db.query(ActivityLog).filter(ActivityLog.student_id.in_(student_ids)).delete(synchronize_session=False)
+        db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)
 
     # 删除该教师班级下的学生
-    db.query(Student).filter(Student.id.in_(student_ids)).delete(synchronize_session=False)
+    if student_ids:
+        db.query(Student).filter(Student.id.in_(student_ids)).delete(synchronize_session=False)
 
     db.commit()
     return {"message": f"已删除教师 {teacher.name} 及所有关联数据"}

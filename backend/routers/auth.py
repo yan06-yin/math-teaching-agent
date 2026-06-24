@@ -13,7 +13,7 @@ from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Clas
 from schemas import (
     StudentRegister, StudentLogin, StudentSetPassword, TeacherLogin, TeacherRegister, TokenResponse,
 )
-from utils.auth import require_teacher
+from utils.auth import require_teacher, require_student
 from config import settings
 from passlib.context import CryptContext
 
@@ -212,7 +212,10 @@ async def reset_teacher_password(
     db: Session = Depends(get_db),
 ):
     """教师重置密码（通过用户名验证身份后重置）"""
-    teacher = db.query(Teacher).filter(Teacher.username == body.username).first()
+    teacher = db.query(Teacher).filter(
+        Teacher.username == body.username,
+        Teacher.is_deleted == False,
+    ).first()
 
     if not teacher:
         raise HTTPException(
@@ -235,9 +238,14 @@ async def reset_teacher_password(
 async def set_password(
     body: StudentSetPassword,
     student_id: int,
+    current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
     """学生设置密码（针对旧数据中无密码的账号）"""
+    user, _ = current_user
+    if user.id != student_id:
+        raise HTTPException(status_code=403, detail="只能设置自己的密码")
+
     student = db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
@@ -290,7 +298,10 @@ async def delete_teacher(
 @router.post("/teacher/login", response_model=TokenResponse)
 async def teacher_login(body: TeacherLogin, db: Session = Depends(get_db)):
     """教师登录"""
-    teacher = db.query(Teacher).filter(Teacher.username == body.username).first()
+    teacher = db.query(Teacher).filter(
+        Teacher.username == body.username,
+        Teacher.is_deleted == False,
+    ).first()
 
     if not teacher or not pwd_context.verify(body.password, teacher.password_hash):
         raise HTTPException(

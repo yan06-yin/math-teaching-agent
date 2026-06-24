@@ -93,6 +93,7 @@ async def generate_exam(
         student_id=student_id,
         task_type="exam_generate",
         status="processing",
+        submission_id=exam.id,  # 关联 exam_id 用于后续过滤
     )
     db.add(task)
     db.commit()
@@ -154,9 +155,14 @@ async def get_exam_generate_status(
     task = db.query(GradingTask).filter(
         GradingTask.task_type == "exam_generate",
         GradingTask.student_id == student_id,
+        GradingTask.submission_id == exam_id,
     ).order_by(GradingTask.created_at.desc()).first()
 
-    exam = db.query(ExamAttempt).filter(ExamAttempt.id == exam_id, ExamAttempt.student_id == student_id).first()
+    exam = db.query(ExamAttempt).filter(
+        ExamAttempt.id == exam_id,
+        ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
+    ).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试记录不存在")
 
@@ -176,12 +182,20 @@ async def submit_exam(
     current_user=Depends(require_student),
     db: Session = Depends(get_db),
 ):
-    """提交答卷 — 保存答案，触发异步批改"""
+    """提交答卷 — 保存答案，触发异步批改（禁止重复提交）"""
     student_id = current_user[0].id
 
     exam = db.get(ExamAttempt, exam_id)
     if not exam or exam.student_id != student_id:
         raise HTTPException(status_code=404, detail="考试不存在")
+
+    # 检查是否已提交过（已有批改任务即为已提交）
+    existing_task = db.query(GradingTask).filter(
+        GradingTask.submission_id == exam_id,
+        GradingTask.task_type == "exam_grade",
+    ).first()
+    if existing_task:
+        raise HTTPException(status_code=400, detail="该考试已提交过，不能重复提交")
 
     exam.student_answers = body.answers
     db.commit()
@@ -191,6 +205,7 @@ async def submit_exam(
         student_id=student_id,
         task_type="exam_grade",
         status="pending",
+        submission_id=exam_id,  # 关联 exam_id 用于后续过滤
     )
     db.add(task)
     db.commit()
@@ -219,12 +234,14 @@ async def get_exam_status(
     exam = db.query(ExamAttempt).filter(
         ExamAttempt.id == exam_id,
         ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
     ).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试记录不存在")
 
-    # 查找批改任务（优先通过任务判断状态）
+    # 查找批改任务（过滤 exam_id，防止跨考试串数据）
     task = db.query(GradingTask).filter(
+        GradingTask.submission_id == exam_id,
         GradingTask.task_type == "exam_grade",
         GradingTask.student_id == student_id,
     ).order_by(GradingTask.created_at.desc()).first()
@@ -280,6 +297,7 @@ async def get_exam_report(
     exam = db.query(ExamAttempt).filter(
         ExamAttempt.id == exam_id,
         ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
     ).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试记录不存在")
@@ -305,7 +323,7 @@ async def my_exams(
     student_id = current_user[0].id
     exams = (
         db.query(ExamAttempt)
-        .filter(ExamAttempt.student_id == student_id)
+        .filter(ExamAttempt.student_id == student_id, ExamAttempt.is_deleted == False)
         .order_by(ExamAttempt.created_at.desc())
         .limit(limit)
         .all()
