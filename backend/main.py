@@ -11,10 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pathlib import Path
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
-
 from config import settings
+
+# 配置日志（从环境变量读取级别，必须在 from config 之后）
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(levelname)s:     %(message)s",
+)
+
 from database import init_db
 from routers import auth, homework, exam, analysis, teacher, assignments, classes, admin
 from seed_admin import seed_admin

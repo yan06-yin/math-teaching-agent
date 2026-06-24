@@ -1,0 +1,23 @@
+# 统一 LF 换行符（所有文本文件）
+* text=auto eol=lf
+
+# Python 文件
+*.py text eol=lf
+*.pyi text eol=lf
+
+# Shell/Dockerfile
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Markdown/文档
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# 前端
+*.tsx text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf

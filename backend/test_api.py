@@ -89,6 +89,52 @@ class TestAuth:
         r = client.get("/api/teacher/dashboard", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
+    # ===== 密码重置测试 =====
+
+    def test_student_reset_password(self):
+        """学生重置密码：先注册，再重置"""
+        client.post("/api/auth/register", json={
+            "name": "测试学生", "student_id": "2024001", "password": "123456", "school_level": "初中",
+        })
+        resp = client.post("/api/auth/student/reset-password", json={
+            "student_id": "2024001", "name": "测试学生",
+            "old_password": "123456", "new_password": "654321",
+        })
+        assert resp.status_code == 200
+
+        # 用旧密码登录应失败
+        login_old = client.post("/api/auth/login", json={
+            "student_id": "2024001", "name": "测试学生", "password": "123456",
+        })
+        assert login_old.status_code == 401
+
+        # 用新密码登录应成功
+        login_new = client.post("/api/auth/login", json={
+            "student_id": "2024001", "name": "测试学生", "password": "654321",
+        })
+        assert login_new.status_code == 200
+
+    def test_student_reset_password_wrong_old(self):
+        """学生密码重置：旧密码错误应拒绝"""
+        client.post("/api/auth/register", json={
+            "name": "测试学生", "student_id": "2024001", "password": "123456", "school_level": "初中",
+        })
+        resp = client.post("/api/auth/student/reset-password", json={
+            "student_id": "2024001", "name": "测试学生",
+            "old_password": "wrong", "new_password": "654321",
+        })
+        assert resp.status_code == 401
+
+    def test_teacher_reset_password(self):
+        """教师重置密码：先注册，再重置"""
+        client.post("/api/auth/teacher/register", json={
+            "name": "张老师", "username": "zhang", "password": "123456", "school": "一中",
+        })
+        resp = client.post("/api/auth/teacher/reset-password", json={
+            "username": "zhang", "old_password": "123456", "new_password": "654321",
+        })
+        assert resp.status_code == 200
+
 
 class TestClass:
     """班级接口测试"""

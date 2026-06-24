@@ -36,5 +36,6 @@ EXPOSE 8000
 # 用非 root 用户运行
 USER app
 
-# 多 worker 启动
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4 --limit-concurrency 128
+# 单 worker（SQLite 不支持多 worker 并发写）
+# 生产环境 + PostgreSQL 可改为 --workers 4
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --limit-concurrency 128

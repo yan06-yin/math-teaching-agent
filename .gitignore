@@ -10,3 +10,6 @@ node_modules/
 *.db
 uploads/*
 !uploads/.gitkeep
+
+# 前端构建产物（由 Dockerfile 构建复制进来）
+backend/frontend/

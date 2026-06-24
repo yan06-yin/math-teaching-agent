@@ -16,3 +16,6 @@ pydantic-settings>=2.0.0
 # 可选：OCR 文字提取（安装后自动启用）
 # paddleocr>=2.6.0
 # paddlepaddle>=2.4.0
+
+# 开发 / 测试
+ruff>=0.3.0

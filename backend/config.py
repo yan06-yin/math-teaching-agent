@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # 跨域
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
+    # 日志级别
+    LOG_LEVEL: str = "INFO"
+
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
         """DATABASE_URL 为空时回退到 SQLite；SECRET_KEY 为空时自动生成"""
