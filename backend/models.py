@@ -90,6 +90,7 @@ class ExamAttempt(Base):
     score = Column(Float, default=0)
     diagnostic_report = Column(JSON, default=dict)    # 诊断报告
     learning_plan = Column(JSON, default=list)        # 学习计划
+    details_json = Column(JSON, default=list)          # 逐题批改详情
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 

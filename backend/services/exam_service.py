@@ -111,6 +111,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
 
         exam.score = float(result.get("score", 0))
         details = result.get("details", [])
+        exam.details_json = details  # 持久化逐题详情
         correct_count = sum(1 for d in details if d.get("correct"))
         wrong_details = [d for d in details if not d.get("correct")]
 

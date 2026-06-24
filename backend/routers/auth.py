@@ -63,7 +63,10 @@ def create_access_token(data: dict) -> str:
 async def register(body: StudentRegister, db: Session = Depends(get_db)):
     """学生注册（姓名+学号+密码+可选邀请码）"""
     try:
-        existing = db.query(Student).filter(Student.student_id == body.student_id).first()
+        existing = db.query(Student).filter(
+            Student.student_id == body.student_id,
+            Student.is_deleted == False,
+        ).first()
         if existing:
             raise HTTPException(status_code=400, detail="该学号已被注册")
 
@@ -122,6 +125,7 @@ async def login(body: StudentLogin, db: Session = Depends(get_db)):
         student = db.query(Student).filter(
             Student.student_id == body.student_id,
             Student.name == body.name,
+            Student.is_deleted == False,
         ).first()
 
         if not student:
@@ -179,6 +183,7 @@ async def reset_student_password(
     student = db.query(Student).filter(
         Student.student_id == body.student_id,
         Student.name == body.name,
+        Student.is_deleted == False,
     ).first()
 
     if not student:
