@@ -4,7 +4,7 @@ import Link from "next/link";
 import axios from "axios";
 
 export default function ExamPage() {
-  const [config, setConfig] = useState({ knowledgePoints: "", difficulty: 3, questionCount: 5, withImages: true });
+  const [config, setConfig] = useState({ knowledgePoints: "", difficulty: 3, questionCount: 5, withImages: false });
   const [questions, setQuestions] = useState<any[]>([]);
   const [answers, setAnswers] = useState<string[]>([]);
   const [step, setStep] = useState<"config" | "taking" | "grading">("config");
