@@ -96,6 +96,7 @@ def init_db():
             ("homework_submissions", "is_deleted", "BOOLEAN DEFAULT FALSE"),
             ("exam_attempts", "is_deleted", "BOOLEAN DEFAULT FALSE"),
             ("exam_attempts", "details_json", "JSON DEFAULT '[]'"),
+            ("exam_attempts", "status", "VARCHAR(20) DEFAULT 'draft'"),
         ]
 
         for table, column, col_type in migrations:

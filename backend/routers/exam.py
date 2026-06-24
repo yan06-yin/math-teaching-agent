@@ -79,12 +79,12 @@ async def generate_exam(
     }
 
     # 同步创建考试记录（空题目，稍后填充）
-    # student_answers=None 表示"尚未提交"，提交后才会设为列表
     exam = ExamAttempt(
         student_id=student_id,
         exam_config_json=exam_config,
         questions_json=[],
-        student_answers=None,
+        student_answers=[],
+        status="draft",
     )
     db.add(exam)
     db.flush()
@@ -199,6 +199,7 @@ async def submit_exam(
         raise HTTPException(status_code=400, detail="该考试已提交过，不能重复提交")
 
     exam.student_answers = body.answers
+    exam.status = "submitted"
     db.commit()
 
     # 创建批改任务

@@ -180,6 +180,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
             score=exam.score,
         )
         exam.learning_plan = plan.get("plan", [])
+        exam.status = "graded"
         db.commit()
 
         db.refresh(exam)

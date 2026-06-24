@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, union_all, cast, String
+from sqlalchemy import func, union_all
 
 from database import get_db
 from models import (
@@ -66,7 +66,7 @@ async def admin_dashboard(
             Student, ExamAttempt.student_id == Student.id,
         ).filter(
             ExamAttempt.is_deleted == False,
-            cast(ExamAttempt.student_answers, String) != "[]",
+            ExamAttempt.status == "graded",
             Student.is_deleted == False,
         ),
     ).subquery()
@@ -131,7 +131,7 @@ async def admin_dashboard(
             extract("year", ExamAttempt.created_at) == year,
             extract("month", ExamAttempt.created_at) == month,
             ExamAttempt.is_deleted == False,
-            cast(ExamAttempt.student_answers, String) != "[]",
+            ExamAttempt.status == "graded",
             Student.is_deleted == False,
         )
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
@@ -320,8 +320,7 @@ async def list_all_students(
         exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.student_answers != None,
-            cast(ExamAttempt.student_answers, String) != "[]",
+            ExamAttempt.status == "graded",
         ).scalar() or 0
 
         # 加权平均：只算已批改的记录
@@ -333,8 +332,7 @@ async def list_all_students(
         exam_valid = db.query(func.count(ExamAttempt.id)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
-            ExamAttempt.student_answers != None,
-            cast(ExamAttempt.student_answers, String) != "[]",
+            ExamAttempt.status == "graded",
         ).scalar() or 0
         total_scores = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_valid = hw_valid + exam_valid
