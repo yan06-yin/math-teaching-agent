@@ -1,73 +1,78 @@
 """
 数据库连接与初始化
 支持 SQLite（默认）、MySQL、PostgreSQL
+使用异步 SQLAlchemy（aiosqlite / asyncpg）
 """
 import logging
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-# 根据不同数据库类型设置连接参数
+# ===== 异步引擎（主请求处理用）=====
 _db_url = settings.DATABASE_URL
 
+def _to_async_url(url: str) -> str:
+    """将同步 URL 转为异步 URL"""
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1).replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("mysql"):
+        return url.replace("mysql://", "mysql+aiomysql://", 1)
+    return url
+
 try:
+    async_url = _to_async_url(_db_url)
+
     if _db_url.startswith("sqlite"):
-        # SQLite：确保目录存在，路径可能来自 DB_PATH 或相对路径
         db_path = settings.DB_PATH
         if not db_path or not os.path.exists(os.path.dirname(db_path)):
-            # 从 URL 中提取路径（sqlite:///path）
             db_path = _db_url.replace("sqlite:///", "", 1)
         DB_DIR = os.path.dirname(db_path)
         os.makedirs(DB_DIR, exist_ok=True)
         logger.info(f"📁 SQLite 数据库目录: {DB_DIR}")
-        engine = create_engine(
-            _db_url,
-            connect_args={"check_same_thread": False},
-        )
-    elif _db_url.startswith("mysql"):
-        # MySQL
-        engine = create_engine(
-            _db_url,
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,
-        )
     elif _db_url.startswith("postgresql") or _db_url.startswith("postgres"):
-        # PostgreSQL — 增加连接池以支持多 worker 并发
-        engine = create_engine(
-            _db_url,
-            pool_size=20,
-            max_overflow=20,
-            pool_pre_ping=True,
-            pool_recycle=300,
-            pool_use_lifo=True,
-        )
-        # 立即测试连接（create_engine 是懒连接，不主动连接不会报错）
-        with engine.connect():
-            pass
-    else:
-        raise ValueError(f"不支持的数据库类型（URL 前缀）: {_db_url[:30]}...")
+        logger.info("📦 PostgreSQL 数据库（异步）")
+    elif _db_url.startswith("mysql"):
+        logger.info("📦 MySQL 数据库（异步）")
+
+    async_engine = create_async_engine(
+        async_url,
+        pool_pre_ping=True,
+        **({"pool_size": 20, "max_overflow": 20, "pool_recycle": 300} if "postgresql" in async_url else {}),
+    )
+
+    AsyncSessionLocal = async_sessionmaker(
+        bind=async_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    logger.info("✅ 异步数据库引擎已创建")
 
 except Exception as e:
-    logger.error(f"❌ 数据库连接失败: {e}")
-    logger.warning("⚠️ 正在回退到 SQLite...")
-    # 回退到 SQLite
+    logger.error(f"❌ 异步数据库引擎创建失败: {e}")
+    logger.warning("⚠️ 回退到 SQLite...")
     _db_url = f"sqlite:///{settings.DB_PATH}"
+    async_url = _to_async_url(_db_url)
     db_path = settings.DB_PATH
     if not db_path or not os.path.exists(os.path.dirname(db_path)):
         db_path = _db_url.replace("sqlite:///", "", 1)
     DB_DIR = os.path.dirname(db_path)
     os.makedirs(DB_DIR, exist_ok=True)
-    logger.info(f"📁 SQLite 数据库目录: {DB_DIR}")
-    engine = create_engine(
-        _db_url,
-        connect_args={"check_same_thread": False},
-    )
+    async_engine = create_async_engine(async_url)
+    AsyncSessionLocal = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# ===== 同步引擎（仅用于启动时迁移和 seed_admin）=====
+sync_db_url = _db_url if _db_url else f"sqlite:///{settings.DB_PATH}"
+sync_engine = create_engine(
+    sync_db_url,
+    connect_args={"check_same_thread": False} if sync_db_url.startswith("sqlite") else {},
+)
 
 
 class Base(DeclarativeBase):
@@ -75,16 +80,15 @@ class Base(DeclarativeBase):
 
 
 def init_db():
-    """创建所有表"""
-    Base.metadata.create_all(bind=engine)
+    """创建所有表（同步，启动时调用）"""
+    Base.metadata.create_all(bind=sync_engine)
 
     # 兼容旧数据库：检查并添加缺失的列
     try:
         from sqlalchemy import inspect, text as sa_text
-        inspector = inspect(engine)
+        inspector = inspect(sync_engine)
         table_names = set(inspector.get_table_names())
 
-        # 需要检查的列缺失情况
         migrations = [
             ("students", "is_deleted", "BOOLEAN DEFAULT FALSE"),
             ("teachers", "is_admin", "BOOLEAN DEFAULT FALSE"),
@@ -103,7 +107,7 @@ def init_db():
             if table in table_names:
                 cols = {c["name"] for c in inspector.get_columns(table)}
                 if column not in cols:
-                    with engine.connect() as conn:
+                    with sync_engine.connect() as conn:
                         try:
                             conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                             conn.commit()
@@ -112,9 +116,8 @@ def init_db():
                             conn.rollback()
                             logger.warning(f"添加 {table}.{column} 失败（可忽略）: {e}")
 
-        # 移除 grading_tasks.submission_id 的外键约束（该字段同时关联 homework 和 exam，不应用 FK）
         if "grading_tasks" in table_names:
-            with engine.connect() as conn:
+            with sync_engine.connect() as conn:
                 try:
                     conn.execute(sa_text("ALTER TABLE grading_tasks DROP CONSTRAINT IF EXISTS grading_tasks_submission_id_fkey"))
                     conn.commit()
@@ -125,10 +128,15 @@ def init_db():
         logger.warning(f"数据库兼容性检查（可忽略）: {e}")
 
 
-def get_db():
-    """依赖注入：获取数据库会话"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    """依赖注入：获取异步数据库会话"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            pass  # async with 自动关闭
+
+
+# 保留同步 SessionLocal 供 seed_admin 使用
+from sqlalchemy.orm import sessionmaker
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)

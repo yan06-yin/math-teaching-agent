@@ -1,22 +1,22 @@
 """
 认证路由 — 学生注册/登录、教师登录/注册
+使用异步 SQLAlchemy
 """
 import logging
 import traceback
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class, Assignment, AssignmentSubmission, ErrorRecord, HomeworkSubmission, ExamAttempt
+from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class, Assignment, AssignmentSubmission, ErrorRecord, HomeworkSubmission, ExamAttempt, GradingTask
 from schemas import (
     StudentRegister, StudentLogin, StudentSetPassword, StudentResetPassword,
     TeacherLogin, TeacherRegister, TeacherResetPassword, TokenResponse,
 )
 from utils.auth import require_teacher, require_student
 from config import settings
-from passlib.context import CryptContext
 
 import hashlib
 import secrets
@@ -24,6 +24,7 @@ import secrets
 logger = logging.getLogger(__name__)
 
 # ===== 密码哈希 — 同时支持 bcrypt（新密码）和 SHA-256（bcrypt 4.1 不兼容期存的旧密码）=====
+from passlib.context import CryptContext
 
 try:
     _bcrypt_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -36,7 +37,6 @@ except Exception:
 
 
 def _hash_password(password: str) -> str:
-    """哈希密码，优先用 bcrypt"""
     if _has_bcrypt:
         return _bcrypt_ctx.hash(password)
     salt = secrets.token_hex(16)
@@ -45,7 +45,6 @@ def _hash_password(password: str) -> str:
 
 
 def _verify_password(password: str, hashed: str) -> bool:
-    """验证密码：bcrypt 优先，兼容 SHA-256 旧格式"""
     if not hashed:
         return False
     if hashed.startswith("sha256$"):
@@ -64,7 +63,6 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 
 class _PasswordContext:
-    """统一接口，兼容原来 pwd_context 的调用方式"""
     def hash(self, password: str) -> str:
         return _hash_password(password)
     def verify(self, password: str, hashed: str) -> bool:
@@ -76,7 +74,6 @@ router = APIRouter()
 
 
 def create_access_token(data: dict) -> str:
-    """创建 JWT token"""
     from jose import jwt
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -85,40 +82,33 @@ def create_access_token(data: dict) -> str:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(body: StudentRegister, db: Session = Depends(get_db)):
+async def register(body: StudentRegister, db: AsyncSession = Depends(get_db)):
     """学生注册（姓名+学号+密码+可选邀请码）"""
     try:
-        existing = db.query(Student).filter(
-            Student.student_id == body.student_id,
-            Student.is_deleted == False,
-        ).first()
+        existing = (await db.execute(
+            select(Student).filter(Student.student_id == body.student_id, Student.is_deleted == False)
+        )).scalar_one_or_none()
         if existing:
             raise HTTPException(status_code=400, detail="该学号已被注册")
 
         # 检查是否有软删除的同名学生 → 彻底清干净后重建
-        deleted = db.query(Student).filter(
-            Student.student_id == body.student_id,
-            Student.is_deleted == True,
-        ).first()
+        deleted = (await db.execute(
+            select(Student).filter(Student.student_id == body.student_id, Student.is_deleted == True)
+        )).scalar_one_or_none()
         if deleted:
-            # 清除旧学生的所有关联数据（考试记录、作业、错题等）
             sid = deleted.id
-            db.query(ClassStudent).filter(ClassStudent.student_id == sid).delete(synchronize_session=False)
-            db.query(GradingTask).filter(GradingTask.student_id == sid).delete(synchronize_session=False)
-            db.query(ExamAttempt).filter(ExamAttempt.student_id == sid).delete(synchronize_session=False)
-            db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == sid).delete(synchronize_session=False)
-            db.query(ErrorRecord).filter(ErrorRecord.student_id == sid).delete(synchronize_session=False)
-            db.query(ActivityLog).filter(ActivityLog.student_id == sid).delete(synchronize_session=False)
-            db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == sid).delete(synchronize_session=False)
-            # 复活并更新信息
+            for model in [ClassStudent, GradingTask, ExamAttempt, HomeworkSubmission, ErrorRecord, ActivityLog, AssignmentSubmission]:
+                objs = (await db.execute(select(model).filter(model.student_id == sid))).scalars().all()
+                for obj in objs:
+                    await db.delete(obj)
             deleted.is_deleted = False
             deleted.name = body.name
             deleted.password_hash = pwd_context.hash(body.password)
             deleted.school_level = body.school_level
             deleted.role = "student"
             deleted.last_login = None
-            db.flush()
-            return _finish_register(db, deleted, body.invite_code)
+            await db.flush()
+            return await _finish_register(db, deleted, body.invite_code)
 
         student = Student(
             name=body.name,
@@ -128,9 +118,8 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
             role="student",
         )
         db.add(student)
-        db.flush()  # 获取 student.id
-
-        return _finish_register(db, student, body.invite_code)
+        await db.flush()
+        return await _finish_register(db, student, body.invite_code)
 
     except HTTPException:
         raise
@@ -139,13 +128,12 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
 
 
-def _finish_register(db: Session, student: Student, invite_code: str | None = None) -> TokenResponse:
+async def _finish_register(db: AsyncSession, student: Student, invite_code: str | None = None) -> TokenResponse:
     """注册收尾：处理邀请码 + 生成 token"""
     if invite_code:
-        invite = db.query(InviteCode).filter(
-            InviteCode.code == invite_code,
-            InviteCode.is_active == True,
-        ).first()
+        invite = (await db.execute(
+            select(InviteCode).filter(InviteCode.code == invite_code, InviteCode.is_active == True)
+        )).scalar_one_or_none()
         if not invite:
             raise HTTPException(status_code=400, detail="邀请码无效")
         if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
@@ -153,75 +141,44 @@ def _finish_register(db: Session, student: Student, invite_code: str | None = No
         if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
             raise HTTPException(status_code=400, detail="邀请码已达使用上限")
 
-        cs = ClassStudent(
-            student_id=student.id,
-            class_id=invite.class_id,
-            joined_via="invite",
-        )
+        cs = ClassStudent(student_id=student.id, class_id=invite.class_id, joined_via="invite")
         db.add(cs)
         invite.used_count += 1
 
-    db.commit()
-    db.refresh(student)
+    await db.commit()
+    await db.refresh(student)
 
     token = create_access_token({"sub": str(student.id), "type": "student"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="student",
-        student_id=student.id,
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="student", student_id=student.id)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: StudentLogin, db: Session = Depends(get_db)):
+async def login(body: StudentLogin, db: AsyncSession = Depends(get_db)):
     """学生登录（姓名+学号+密码）"""
     try:
-        student = db.query(Student).filter(
-            Student.student_id == body.student_id,
-            Student.name == body.name,
-            Student.is_deleted == False,
-        ).first()
+        student = (await db.execute(
+            select(Student).filter(
+                Student.student_id == body.student_id,
+                Student.name == body.name,
+                Student.is_deleted == False,
+            )
+        )).scalar_one_or_none()
 
         if not student:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="学号或姓名不正确",
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号或姓名不正确")
 
-        # 处理旧数据：没有密码的学生需要设置密码
         if not student.password_hash:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="请先设置密码后登录",
-            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="请先设置密码后登录")
 
         if not pwd_context.verify(body.password, student.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="密码不正确",
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="密码不正确")
 
-        # 更新最后登录时间
         student.last_login = datetime.now(timezone.utc)
-        db.commit()
-
-        # 记录登录活动
-        activity = ActivityLog(
-            student_id=student.id,
-            activity_type="login",
-            detail="学生登录",
-        )
-        db.add(activity)
-        db.commit()
+        db.add(ActivityLog(student_id=student.id, activity_type="login", detail="学生登录"))
+        await db.commit()
 
         token = create_access_token({"sub": str(student.id), "type": "student"})
-        return TokenResponse(
-            access_token=token,
-            token_type="bearer",
-            user_type="student",
-            student_id=student.id,
-        )
+        return TokenResponse(access_token=token, token_type="bearer", user_type="student", student_id=student.id)
     except HTTPException:
         raise
     except Exception as e:
@@ -230,81 +187,52 @@ async def login(body: StudentLogin, db: Session = Depends(get_db)):
 
 
 @router.post("/student/reset-password", response_model=TokenResponse)
-async def reset_student_password(
-    body: StudentResetPassword,
-    db: Session = Depends(get_db),
-):
+async def reset_student_password(body: StudentResetPassword, db: AsyncSession = Depends(get_db)):
     """学生重置密码（需提供旧密码验证身份）"""
-    student = db.query(Student).filter(
-        Student.student_id == body.student_id,
-        Student.name == body.name,
-        Student.is_deleted == False,
-    ).first()
+    student = (await db.execute(
+        select(Student).filter(
+            Student.student_id == body.student_id,
+            Student.name == body.name,
+            Student.is_deleted == False,
+        )
+    )).scalar_one_or_none()
 
     if not student:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="学号或姓名不正确",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号或姓名不正确")
 
     if not student.password_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该账号尚未设置密码，请使用注册流程",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该账号尚未设置密码，请使用注册流程")
 
     if not pwd_context.verify(body.old_password, student.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="旧密码不正确",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="旧密码不正确")
 
     student.password_hash = pwd_context.hash(body.new_password)
     student.last_login = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(student)
+    await db.commit()
+    await db.refresh(student)
 
     token = create_access_token({"sub": str(student.id), "type": "student"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="student",
-        student_id=student.id,
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="student", student_id=student.id)
 
 
 @router.post("/teacher/reset-password")
-async def reset_teacher_password(
-    body: TeacherResetPassword,
-    db: Session = Depends(get_db),
-):
+async def reset_teacher_password(body: TeacherResetPassword, db: AsyncSession = Depends(get_db)):
     """教师重置密码（需提供旧密码验证身份）"""
-    teacher = db.query(Teacher).filter(
-        Teacher.username == body.username,
-        Teacher.is_deleted == False,
-    ).first()
+    teacher = (await db.execute(
+        select(Teacher).filter(Teacher.username == body.username, Teacher.is_deleted == False)
+    )).scalar_one_or_none()
 
     if not teacher:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名不存在",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名不存在")
 
     if not pwd_context.verify(body.old_password, teacher.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="旧密码不正确",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="旧密码不正确")
 
     teacher.password_hash = pwd_context.hash(body.new_password)
-    db.commit()
+    await db.commit()
 
     token = create_access_token({"sub": str(teacher.id), "type": "teacher"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="teacher",
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="teacher")
 
 
 @router.post("/set-password")
@@ -312,14 +240,14 @@ async def set_password(
     body: StudentSetPassword,
     student_id: int,
     current_user=Depends(require_student),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """学生设置密码（针对旧数据中无密码的账号）"""
     user, _ = current_user
     if user.id != student_id:
         raise HTTPException(status_code=403, detail="只能设置自己的密码")
 
-    student = db.get(Student, student_id)
+    student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
@@ -327,75 +255,63 @@ async def set_password(
         raise HTTPException(status_code=400, detail="该账号已设置密码")
 
     student.password_hash = pwd_context.hash(body.password)
-    db.commit()
-    db.refresh(student)
+    await db.commit()
+    await db.refresh(student)
 
     token = create_access_token({"sub": str(student.id), "type": "student"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="student",
-        student_id=student.id,
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="student", student_id=student.id)
 
 
 @router.delete("/teacher/me")
-async def delete_teacher(
-    current_user=Depends(require_teacher),
-    db: Session = Depends(get_db),
-):
+async def delete_teacher(current_user=Depends(require_teacher), db: AsyncSession = Depends(get_db)):
     """教师删除自己的账号（级联清理班级、作业等数据）"""
     teacher = current_user[0]
     teacher_id = teacher.id
 
-    # 级联：班级下的学生关联和邀请码
-    class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher_id).all()]
+    class_ids = [c.id for c in (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()]
     if class_ids:
-        db.query(ClassStudent).filter(ClassStudent.class_id.in_(class_ids)).delete(synchronize_session=False)
-        db.query(InviteCode).filter(InviteCode.class_id.in_(class_ids)).delete(synchronize_session=False)
+        for model in [ClassStudent, InviteCode]:
+            objs = (await db.execute(select(model).filter(model.class_id.in_(class_ids)))).scalars().all()
+            for obj in objs:
+                await db.delete(obj)
 
-    # 教师发布的作业及提交
-    assignments = db.query(Assignment).filter(Assignment.teacher_id == teacher_id).all()
+    assignments = (await db.execute(select(Assignment).filter(Assignment.teacher_id == teacher_id))).scalars().all()
     for a in assignments:
-        db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id).delete(synchronize_session=False)
-    db.query(Assignment).filter(Assignment.teacher_id == teacher_id).delete(synchronize_session=False)
+        subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
+        for s in subs:
+            await db.delete(s)
+    for a in assignments:
+        await db.delete(a)
 
-    # 班级
-    db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
+    classes = (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()
+    for c in classes:
+        await db.delete(c)
 
     teacher.is_deleted = True
-    db.commit()
+    await db.commit()
     return {"message": f"已删除教师 {teacher.name} 及相关数据"}
 
 
 @router.post("/teacher/login", response_model=TokenResponse)
-async def teacher_login(body: TeacherLogin, db: Session = Depends(get_db)):
+async def teacher_login(body: TeacherLogin, db: AsyncSession = Depends(get_db)):
     """教师登录"""
-    teacher = db.query(Teacher).filter(
-        Teacher.username == body.username,
-        Teacher.is_deleted == False,
-    ).first()
+    teacher = (await db.execute(
+        select(Teacher).filter(Teacher.username == body.username, Teacher.is_deleted == False)
+    )).scalar_one_or_none()
 
     if not teacher or not pwd_context.verify(body.password, teacher.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码不正确",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码不正确")
 
     token = create_access_token({"sub": str(teacher.id), "type": "teacher"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="teacher",
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="teacher")
 
 
 @router.post("/teacher/register", response_model=TokenResponse)
-async def teacher_register(body: TeacherRegister, db: Session = Depends(get_db)):
+async def teacher_register(body: TeacherRegister, db: AsyncSession = Depends(get_db)):
     """教师注册（开放注册）"""
-    existing = db.query(Teacher).filter(
-        Teacher.username == body.username,
-    ).first()
+    existing = (await db.execute(
+        select(Teacher).filter(Teacher.username == body.username)
+    )).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="用户名已被注册")
 
@@ -406,12 +322,8 @@ async def teacher_register(body: TeacherRegister, db: Session = Depends(get_db))
         school=body.school,
     )
     db.add(teacher)
-    db.commit()
-    db.refresh(teacher)
+    await db.commit()
+    await db.refresh(teacher)
 
     token = create_access_token({"sub": str(teacher.id), "type": "teacher"})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user_type="teacher",
-    )
+    return TokenResponse(access_token=token, token_type="bearer", user_type="teacher")

@@ -1,86 +1,42 @@
 """
-管理员路由 — 管理教师、班级、学生、作业、成绩
+管理员路由 — 异步 SQLAlchemy
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, union_all
+from sqlalchemy import select, func, union_all, cast, String, extract
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone, timedelta
 
 from database import get_db
 from models import (
     Teacher, Student, Class, ClassStudent, InviteCode,
     Assignment, AssignmentSubmission, HomeworkSubmission, ExamAttempt,
-    ErrorRecord, ActivityLog, GradingTask,
+    ErrorRecord, ActivityLog, GradingTask, AIProvider,
 )
 from schemas import AdminAssignStudent
-from utils.auth import require_admin, require_teacher
+from utils.auth import require_admin
 
 router = APIRouter()
 
 
-# ===== 总览 =====
-
 @router.get("/dashboard")
-async def admin_dashboard(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """系统总览数据"""
-    teacher_count = db.query(func.count(Teacher.id)).filter(
-        Teacher.is_admin == False,
-        Teacher.is_deleted == False,
-    ).scalar() or 0
-    class_count = db.query(func.count(Class.id)).scalar() or 0
-    student_count = db.query(func.count(Student.id)).filter(
-        Student.is_deleted == False,
-    ).scalar() or 0
-    assignment_count = db.query(func.count(Assignment.id)).scalar() or 0
-    hw_count = db.query(func.count(HomeworkSubmission.id)).join(
-        Student, HomeworkSubmission.student_id == Student.id,
-    ).filter(
-        HomeworkSubmission.is_deleted == False,
-        Student.is_deleted == False,
-    ).scalar() or 0
-    exam_count = db.query(func.count(ExamAttempt.id)).join(
-        Student, ExamAttempt.student_id == Student.id,
-    ).filter(
-        ExamAttempt.is_deleted == False,
-        Student.is_deleted == False,
-    ).scalar() or 0
-    # 计算全局总分均值：每个学生算个人均分 → 所有学生平均（等权重）
-    # 作业：已批改完成（status=done），考试：已提交答案（student_answers 非空）
-    all_scores = union_all(
-        db.query(
-            HomeworkSubmission.student_id.label("sid"),
-            HomeworkSubmission.score.label("score"),
-        ).join(
-            Student, HomeworkSubmission.student_id == Student.id,
-        ).filter(
-            HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.status == "done",
-            Student.is_deleted == False,
-        ),
-        db.query(
-            ExamAttempt.student_id.label("sid"),
-            ExamAttempt.score.label("score"),
-        ).join(
-            Student, ExamAttempt.student_id == Student.id,
-        ).filter(
-            ExamAttempt.is_deleted == False,
-            ExamAttempt.status == "graded",
-            Student.is_deleted == False,
-        ),
-    ).subquery()
+async def admin_dashboard(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    teacher_count = (await db.execute(select(func.count(Teacher.id)).filter(Teacher.is_admin == False, Teacher.is_deleted == False))).scalar() or 0
+    class_count = (await db.execute(select(func.count(Class.id)))).scalar() or 0
+    student_count = (await db.execute(select(func.count(Student.id)).filter(Student.is_deleted == False))).scalar() or 0
+    assignment_count = (await db.execute(select(func.count(Assignment.id)))).scalar() or 0
+    hw_count = (await db.execute(select(func.count(HomeworkSubmission.id)).join(Student, HomeworkSubmission.student_id == Student.id).filter(HomeworkSubmission.is_deleted == False, Student.is_deleted == False))).scalar() or 0
+    exam_count = (await db.execute(select(func.count(ExamAttempt.id)).join(Student, ExamAttempt.student_id == Student.id).filter(ExamAttempt.is_deleted == False, Student.is_deleted == False))).scalar() or 0
 
-    student_avg_subq = db.query(
-        func.avg(all_scores.c.score).label("student_avg")
-    ).group_by(all_scores.c.sid).subquery()
-    row = db.query(func.avg(student_avg_subq.c.student_avg)).scalar()
+    # 全局平均分
+    all_scores = union_all(
+        select(HomeworkSubmission.student_id.label("sid"), HomeworkSubmission.score.label("score")).join(Student, HomeworkSubmission.student_id == Student.id).filter(HomeworkSubmission.is_deleted == False, HomeworkSubmission.status == "done", Student.is_deleted == False),
+        select(ExamAttempt.student_id.label("sid"), ExamAttempt.score.label("score")).join(Student, ExamAttempt.student_id == Student.id).filter(ExamAttempt.is_deleted == False, ExamAttempt.status == "graded", Student.is_deleted == False),
+    ).subquery()
+    student_avg_subq = select(func.avg(all_scores.c.score).label("student_avg")).group_by(all_scores.c.sid).subquery()
+    row = (await db.execute(select(func.avg(student_avg_subq.c.student_avg)))).scalar()
     avg_score = round(float(row), 1) if row else 0
 
-    # 每月趋势数据（近6个月）
-    from sqlalchemy import extract
-    from datetime import datetime, timezone, timedelta
-
+    # 月度趋势
     months_data = []
     now = datetime.now(timezone.utc)
     for i in range(5, -1, -1):
@@ -91,513 +47,246 @@ async def admin_dashboard(
             year -= 1
         label = f"{year}-{month:02d}"
 
-        hw_in_month = db.query(func.count(HomeworkSubmission.id)).join(
-            Student, HomeworkSubmission.student_id == Student.id,
-        ).filter(
-            extract("year", HomeworkSubmission.created_at) == year,
-            extract("month", HomeworkSubmission.created_at) == month,
-            HomeworkSubmission.is_deleted == False,
-            Student.is_deleted == False,
-        ).scalar() or 0
+        hw_in_month = (await db.execute(select(func.count(HomeworkSubmission.id)).join(Student, HomeworkSubmission.student_id == Student.id).filter(extract("year", HomeworkSubmission.created_at) == year, extract("month", HomeworkSubmission.created_at) == month, HomeworkSubmission.is_deleted == False, Student.is_deleted == False))).scalar() or 0
+        exam_in_month = (await db.execute(select(func.count(ExamAttempt.id)).join(Student, ExamAttempt.student_id == Student.id).filter(extract("year", ExamAttempt.created_at) == year, extract("month", ExamAttempt.created_at) == month, ExamAttempt.is_deleted == False, Student.is_deleted == False))).scalar() or 0
 
-        exam_in_month = db.query(func.count(ExamAttempt.id)).join(
-            Student, ExamAttempt.student_id == Student.id,
-        ).filter(
-            extract("year", ExamAttempt.created_at) == year,
-            extract("month", ExamAttempt.created_at) == month,
-            ExamAttempt.is_deleted == False,
-            Student.is_deleted == False,
-        ).scalar() or 0
-
-        # 月度平均分：合并当月作业和考试的分数（等权重 — 先算人均再求班级均）
-        hw_scores_m = db.query(
-            HomeworkSubmission.student_id.label("sid"),
-            HomeworkSubmission.score.label("score"),
-        ).join(
-            Student, HomeworkSubmission.student_id == Student.id,
-        ).filter(
-            extract("year", HomeworkSubmission.created_at) == year,
-            extract("month", HomeworkSubmission.created_at) == month,
-            HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.status == "done",
-            Student.is_deleted == False,
-        )
-        exam_scores_m = db.query(
-            ExamAttempt.student_id.label("sid"),
-            ExamAttempt.score.label("score"),
-        ).join(
-            Student, ExamAttempt.student_id == Student.id,
-        ).filter(
-            extract("year", ExamAttempt.created_at) == year,
-            extract("month", ExamAttempt.created_at) == month,
-            ExamAttempt.is_deleted == False,
-            ExamAttempt.status == "graded",
-            Student.is_deleted == False,
-        )
+        hw_scores_m = select(HomeworkSubmission.student_id.label("sid"), HomeworkSubmission.score.label("score")).join(Student, HomeworkSubmission.student_id == Student.id).filter(extract("year", HomeworkSubmission.created_at) == year, extract("month", HomeworkSubmission.created_at) == month, HomeworkSubmission.is_deleted == False, HomeworkSubmission.status == "done", Student.is_deleted == False)
+        exam_scores_m = select(ExamAttempt.student_id.label("sid"), ExamAttempt.score.label("score")).join(Student, ExamAttempt.student_id == Student.id).filter(extract("year", ExamAttempt.created_at) == year, extract("month", ExamAttempt.created_at) == month, ExamAttempt.is_deleted == False, ExamAttempt.status == "graded", Student.is_deleted == False)
         all_scores_m = union_all(hw_scores_m, exam_scores_m).subquery()
-        m_student_avg = db.query(
-            func.avg(all_scores_m.c.score).label("student_avg")
-        ).group_by(all_scores_m.c.sid).subquery()
-        m_row = db.query(func.avg(m_student_avg.c.student_avg)).scalar()
+        m_student_avg = select(func.avg(all_scores_m.c.score).label("student_avg")).group_by(all_scores_m.c.sid).subquery()
+        m_row = (await db.execute(select(func.avg(m_student_avg.c.student_avg)))).scalar()
         avg_in_month = round(float(m_row), 1) if m_row else 0
 
-        months_data.append({
-            "month": label,
-            "homework_count": hw_in_month,
-            "exam_count": exam_in_month,
-            "avg_score": avg_in_month,
-        })
+        months_data.append({"month": label, "homework_count": hw_in_month, "exam_count": exam_in_month, "avg_score": avg_in_month})
 
-    return {
-        "teacher_count": teacher_count,
-        "class_count": class_count,
-        "student_count": student_count,
-        "assignment_count": assignment_count,
-        "homework_count": hw_count,
-        "exam_count": exam_count,
-        "avg_score": avg_score,
-        "monthly_trends": months_data,
-    }
+    return {"teacher_count": teacher_count, "class_count": class_count, "student_count": student_count, "assignment_count": assignment_count, "homework_count": hw_count, "exam_count": exam_count, "avg_score": avg_score, "monthly_trends": months_data}
 
-
-# ===== 教师管理 =====
 
 @router.get("/teachers")
-async def list_all_teachers(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """查看所有教师"""
-    teachers = db.query(Teacher).filter(
-        Teacher.is_admin == False,
-        Teacher.is_deleted == False,
-    ).order_by(Teacher.created_at.desc()).all()
+async def list_all_teachers(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    teachers = (await db.execute(select(Teacher).filter(Teacher.is_admin == False, Teacher.is_deleted == False).order_by(Teacher.created_at.desc()))).scalars().all()
     result = []
     for t in teachers:
-        class_count = db.query(func.count(Class.id)).filter(Class.teacher_id == t.id).scalar() or 0
-        student_count = (
-            db.query(func.count(ClassStudent.id))
-            .join(Class, ClassStudent.class_id == Class.id)
-            .filter(Class.teacher_id == t.id)
-            .scalar() or 0
-        )
-        result.append({
-            "id": t.id,
-            "name": t.name,
-            "username": t.username,
-            "school": t.school,
-            "class_count": class_count,
-            "student_count": student_count,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-        })
+        class_count = (await db.execute(select(func.count(Class.id)).filter(Class.teacher_id == t.id))).scalar() or 0
+        student_count = (await db.execute(select(func.count(ClassStudent.id)).join(Class, ClassStudent.class_id == Class.id).filter(Class.teacher_id == t.id))).scalar() or 0
+        result.append({"id": t.id, "name": t.name, "username": t.username, "school": t.school, "class_count": class_count, "student_count": student_count, "created_at": t.created_at.isoformat() if t.created_at else None})
     return result
 
 
 @router.delete("/teachers/{teacher_id}")
-async def delete_teacher(
-    teacher_id: int,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """删除教师（级联清理所有班级、作业、关联数据）"""
-    teacher = db.query(Teacher).filter(Teacher.id == teacher_id, Teacher.is_admin == False).first()
+async def delete_teacher(teacher_id: int, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    teacher = (await db.execute(select(Teacher).filter(Teacher.id == teacher_id, Teacher.is_admin == False))).scalar_one_or_none()
     if not teacher:
         raise HTTPException(status_code=404, detail="教师不存在")
 
-    # 级联删除班级相关的学生关联
-    class_ids = [c.id for c in db.query(Class).filter(Class.teacher_id == teacher_id).all()]
+    class_ids = [c.id for c in (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()]
     student_ids = []
     if class_ids:
-        # 先取出学生 ID，再删 ClassStudent（否则 student_ids 为空）
-        student_ids = [r[0] for r in db.query(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)).all()]
-        db.query(ClassStudent).filter(ClassStudent.class_id.in_(class_ids)).delete(synchronize_session=False)
-        db.query(InviteCode).filter(InviteCode.class_id.in_(class_ids)).delete(synchronize_session=False)
+        student_ids = [r[0] for r in (await db.execute(select(ClassStudent.student_id).filter(ClassStudent.class_id.in_(class_ids)))).all()]
+        for model in [ClassStudent, InviteCode]:
+            objs = (await db.execute(select(model).filter(model.class_id.in_(class_ids)))).scalars().all()
+            for obj in objs:
+                await db.delete(obj)
 
-    # 教师发布的作业及提交
-    assignments = db.query(Assignment).filter(Assignment.teacher_id == teacher_id).all()
+    assignments = (await db.execute(select(Assignment).filter(Assignment.teacher_id == teacher_id))).scalars().all()
     for a in assignments:
-        db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id).delete(synchronize_session=False)
-    db.query(Assignment).filter(Assignment.teacher_id == teacher_id).delete(synchronize_session=False)
+        subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
+        for s in subs:
+            await db.delete(s)
+    for a in assignments:
+        await db.delete(a)
 
-    # 班级
-    db.query(Class).filter(Class.teacher_id == teacher_id).delete(synchronize_session=False)
+    classes = (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()
+    for c in classes:
+        await db.delete(c)
 
     teacher.is_deleted = True
 
-    # 硬删除该教师班级下所有学生的相关记录
     if student_ids:
-        db.query(GradingTask).filter(GradingTask.student_id.in_(student_ids)).delete(synchronize_session=False)
-        db.query(ExamAttempt).filter(ExamAttempt.student_id.in_(student_ids)).delete(synchronize_session=False)
-        db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)
-        db.query(ErrorRecord).filter(ErrorRecord.student_id.in_(student_ids)).delete(synchronize_session=False)
-        db.query(ActivityLog).filter(ActivityLog.student_id.in_(student_ids)).delete(synchronize_session=False)
-        db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id.in_(student_ids)).delete(synchronize_session=False)
+        for model in [GradingTask, ExamAttempt, HomeworkSubmission, ErrorRecord, ActivityLog, AssignmentSubmission]:
+            objs = (await db.execute(select(model).filter(model.student_id.in_(student_ids)))).scalars().all()
+            for obj in objs:
+                await db.delete(obj)
+        students = (await db.execute(select(Student).filter(Student.id.in_(student_ids)))).scalars().all()
+        for s in students:
+            await db.delete(s)
 
-    # 删除该教师班级下的学生
-    if student_ids:
-        db.query(Student).filter(Student.id.in_(student_ids)).delete(synchronize_session=False)
-
-    db.commit()
+    await db.commit()
     return {"message": f"已删除教师 {teacher.name} 及所有关联数据"}
 
 
-# ===== 班级管理 =====
-
 @router.get("/classes")
-async def list_all_classes(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """查看所有班级"""
-    classes = db.query(Class).order_by(Class.created_at.desc()).all()
+async def list_all_classes(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    classes = (await db.execute(select(Class).order_by(Class.created_at.desc()))).scalars().all()
     result = []
     for cls in classes:
-        teacher = db.get(Teacher, cls.teacher_id)
-        student_count = db.query(func.count(ClassStudent.id)).filter(ClassStudent.class_id == cls.id).scalar() or 0
-        result.append({
-            "id": cls.id,
-            "name": cls.name,
-            "teacher_id": cls.teacher_id,
-            "teacher_name": teacher.name if teacher else "未知",
-            "school_level": cls.school_level,
-            "student_count": student_count,
-            "created_at": cls.created_at.isoformat() if cls.created_at else None,
-        })
+        teacher = await db.get(Teacher, cls.teacher_id)
+        student_count = (await db.execute(select(func.count(ClassStudent.id)).filter(ClassStudent.class_id == cls.id))).scalar() or 0
+        result.append({"id": cls.id, "name": cls.name, "teacher_id": cls.teacher_id, "teacher_name": teacher.name if teacher else "未知", "school_level": cls.school_level, "student_count": student_count, "created_at": cls.created_at.isoformat() if cls.created_at else None})
     return result
 
 
 @router.delete("/classes/{class_id}")
-async def admin_delete_class(
-    class_id: int,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """管理员删除班级（级联清理学生关联和邀请码）"""
-    cls = db.get(Class, class_id)
+async def admin_delete_class(class_id: int, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    cls = await db.get(Class, class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-    # 先清理该班级下的邀请码和学生关联
-    db.query(InviteCode).filter(InviteCode.class_id == class_id).delete(synchronize_session=False)
-    db.query(ClassStudent).filter(ClassStudent.class_id == class_id).delete(synchronize_session=False)
-    db.query(Class).filter(Class.id == class_id).delete(synchronize_session=False)
-    db.commit()
+    invites = (await db.execute(select(InviteCode).filter(InviteCode.class_id == class_id))).scalars().all()
+    for i in invites:
+        await db.delete(i)
+    members = (await db.execute(select(ClassStudent).filter(ClassStudent.class_id == class_id))).scalars().all()
+    for m in members:
+        await db.delete(m)
+    await db.delete(cls)
+    await db.commit()
     return {"message": "班级已删除"}
 
 
-# ===== 学生管理 =====
-
 @router.get("/students")
-async def list_all_students(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-):
-    """查看所有学生（支持分页）"""
-    total = db.query(func.count(Student.id)).filter(Student.is_deleted == False).scalar() or 0
-    students = db.query(Student).filter(Student.is_deleted == False).order_by(Student.created_at.desc()).offset(offset).limit(limit).all()
+async def list_all_students(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db), limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
+    total = (await db.execute(select(func.count(Student.id)).filter(Student.is_deleted == False))).scalar() or 0
+    students = (await db.execute(select(Student).filter(Student.is_deleted == False).order_by(Student.created_at.desc()).offset(offset).limit(limit))).scalars().all()
     result = []
     for s in students:
-        cs = db.query(ClassStudent).filter(ClassStudent.student_id == s.id).first()
+        cs = (await db.execute(select(ClassStudent).filter(ClassStudent.student_id == s.id))).scalar_one_or_none()
         class_name = None
         if cs:
-            cls = db.get(Class, cs.class_id)
+            cls = await db.get(Class, cs.class_id)
             class_name = cls.name if cls else None
-
-        hw_count = db.query(func.count(HomeworkSubmission.id)).filter(
-            HomeworkSubmission.student_id == s.id,
-            HomeworkSubmission.is_deleted == False,
-        ).scalar() or 0
-        exam_count = db.query(func.count(ExamAttempt.id)).filter(
-            ExamAttempt.student_id == s.id,
-            ExamAttempt.is_deleted == False,
-        ).scalar() or 0
-        hw_avg = db.query(func.avg(HomeworkSubmission.score)).filter(
-            HomeworkSubmission.student_id == s.id,
-            HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.status == "done",
-        ).scalar() or 0
-        exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
-            ExamAttempt.student_id == s.id,
-            ExamAttempt.is_deleted == False,
-            ExamAttempt.status == "graded",
-        ).scalar() or 0
-
-        # 加权平均：只算已批改的记录
-        hw_valid = db.query(func.count(HomeworkSubmission.id)).filter(
-            HomeworkSubmission.student_id == s.id,
-            HomeworkSubmission.is_deleted == False,
-            HomeworkSubmission.status == "done",
-        ).scalar() or 0
-        exam_valid = db.query(func.count(ExamAttempt.id)).filter(
-            ExamAttempt.student_id == s.id,
-            ExamAttempt.is_deleted == False,
-            ExamAttempt.status == "graded",
-        ).scalar() or 0
+        hw_count = (await db.execute(select(func.count(HomeworkSubmission.id)).filter(HomeworkSubmission.student_id == s.id, HomeworkSubmission.is_deleted == False))).scalar() or 0
+        exam_count = (await db.execute(select(func.count(ExamAttempt.id)).filter(ExamAttempt.student_id == s.id, ExamAttempt.is_deleted == False))).scalar() or 0
+        hw_avg = (await db.execute(select(func.avg(HomeworkSubmission.score)).filter(HomeworkSubmission.student_id == s.id, HomeworkSubmission.is_deleted == False, HomeworkSubmission.status == "done"))).scalar() or 0
+        exam_avg = (await db.execute(select(func.avg(ExamAttempt.score)).filter(ExamAttempt.student_id == s.id, ExamAttempt.is_deleted == False, ExamAttempt.status == "graded"))).scalar() or 0
+        hw_valid = hw_count
+        exam_valid = exam_count
         total_scores = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_valid = hw_valid + exam_valid
         avg_score = round(total_scores / total_valid, 1) if total_valid > 0 else 0
-
-        result.append({
-            "id": s.id,
-            "name": s.name,
-            "student_id": s.student_id,
-            "school_level": s.school_level,
-            "class_name": class_name,
-            "homework_count": hw_count,
-            "exam_count": exam_count,
-            "avg_score": round(avg_score, 1),
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-        })
-    return {
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "students": result,
-    }
+        result.append({"id": s.id, "name": s.name, "student_id": s.student_id, "school_level": s.school_level, "class_name": class_name, "homework_count": hw_count, "exam_count": exam_count, "avg_score": round(avg_score, 1), "created_at": s.created_at.isoformat() if s.created_at else None})
+    return {"total": total, "offset": offset, "limit": limit, "students": result}
 
 
 @router.post("/students/assign")
-async def admin_assign_student(
-    body: AdminAssignStudent,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """管理员分配学生到班级"""
-    student = db.get(Student, body.student_id)
+async def admin_assign_student(body: AdminAssignStudent, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    student = await db.get(Student, body.student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
-    cls = db.get(Class, body.class_id)
+    cls = await db.get(Class, body.class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-
-    existing = db.query(ClassStudent).filter(ClassStudent.student_id == body.student_id).first()
+    existing = (await db.execute(select(ClassStudent).filter(ClassStudent.student_id == body.student_id))).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="该学生已在班级中")
-
-    cs = ClassStudent(
-        student_id=body.student_id,
-        class_id=body.class_id,
-        joined_via="manual",
-    )
-    db.add(cs)
-    db.commit()
+    db.add(ClassStudent(student_id=body.student_id, class_id=body.class_id, joined_via="manual"))
+    await db.commit()
     return {"message": f"已将 {student.name} 分配到班级 {cls.name}"}
 
 
 @router.delete("/students/{student_id}/class")
-async def admin_remove_student_class(
-    student_id: int,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """管理员将学生移出班级"""
-    cs = db.query(ClassStudent).filter(ClassStudent.student_id == student_id).first()
+async def admin_remove_student_class(student_id: int, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    cs = (await db.execute(select(ClassStudent).filter(ClassStudent.student_id == student_id))).scalar_one_or_none()
     if not cs:
         raise HTTPException(status_code=404, detail="该学生不在任何班级中")
-    db.delete(cs)
-    db.commit()
+    await db.delete(cs)
+    await db.commit()
     return {"message": "已移出班级"}
 
 
 @router.delete("/students/{student_id}")
-async def admin_delete_student(
-    student_id: int,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """管理员软删除学生（级联清理所有关联数据）"""
-    student = db.get(Student, student_id)
+async def admin_delete_student(student_id: int, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
-
     student.is_deleted = True
-    db.query(ClassStudent).filter(ClassStudent.student_id == student_id).delete(synchronize_session=False)
-    # 先删 GradingTask（有 FK 引用 homework_submissions）
-    db.query(GradingTask).filter(GradingTask.student_id == student_id).delete(synchronize_session=False)
-    db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).delete(synchronize_session=False)
-    db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == student_id).delete(synchronize_session=False)
-    db.query(ErrorRecord).filter(ErrorRecord.student_id == student_id).delete(synchronize_session=False)
-    db.query(ActivityLog).filter(ActivityLog.student_id == student_id).delete(synchronize_session=False)
-    db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id).delete(synchronize_session=False)
-    db.commit()
+    for model in [ClassStudent, GradingTask, ExamAttempt, HomeworkSubmission, ErrorRecord, ActivityLog, AssignmentSubmission]:
+        objs = (await db.execute(select(model).filter(model.student_id == student_id))).scalars().all()
+        for obj in objs:
+            await db.delete(obj)
+    await db.commit()
     return {"message": f"已删除学生 {student.name}({student.student_id}) 及相关数据"}
 
 
-# ===== 作业管理 =====
-
 @router.get("/assignments")
-async def list_all_assignments(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """查看所有作业"""
-    assignments = db.query(Assignment).order_by(Assignment.created_at.desc()).all()
+async def list_all_assignments(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    assignments = (await db.execute(select(Assignment).order_by(Assignment.created_at.desc()))).scalars().all()
     result = []
     for a in assignments:
-        teacher = db.get(Teacher, a.teacher_id)
-        sub_count = db.query(func.count(AssignmentSubmission.id)).filter(
-            AssignmentSubmission.assignment_id == a.id
-        ).scalar() or 0
-
+        teacher = await db.get(Teacher, a.teacher_id)
+        sub_count = (await db.execute(select(func.count(AssignmentSubmission.id)).filter(AssignmentSubmission.assignment_id == a.id))).scalar() or 0
         class_name = None
         if a.class_id:
-            cls = db.get(Class, a.class_id)
+            cls = await db.get(Class, a.class_id)
             class_name = cls.name if cls else "广播作业"
-
-        result.append({
-            "id": a.id,
-            "title": a.title,
-            "teacher_name": teacher.name if teacher else "未知",
-            "class_name": class_name,
-            "questions_count": len(a.questions_json) if a.questions_json else 0,
-            "submissions": sub_count,
-            "created_at": a.created_at.isoformat() if a.created_at else None,
-        })
+        result.append({"id": a.id, "title": a.title, "teacher_name": teacher.name if teacher else "未知", "class_name": class_name, "questions_count": len(a.questions_json) if a.questions_json else 0, "submissions": sub_count, "created_at": a.created_at.isoformat() if a.created_at else None})
     return result
 
-
-# ===== 成绩统计 =====
 
 @router.get("/exams")
-async def list_exam_records(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """查看考试记录"""
-    exams = db.query(ExamAttempt).join(
-        Student, ExamAttempt.student_id == Student.id,
-    ).filter(
-        ExamAttempt.is_deleted == False,
-        Student.is_deleted == False,
-    ).order_by(ExamAttempt.created_at.desc()).limit(200).all()
+async def list_exam_records(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    exams = (await db.execute(select(ExamAttempt).join(Student, ExamAttempt.student_id == Student.id).filter(ExamAttempt.is_deleted == False, Student.is_deleted == False).order_by(ExamAttempt.created_at.desc()).limit(200))).scalars().all()
     result = []
     for e in exams:
-        student = db.get(Student, e.student_id)
-        result.append({
-            "id": e.id,
-            "student_name": student.name if student else "未知",
-            "student_id": student.student_id if student else "",
-            "score": e.score,
-            "questions_count": len(e.questions_json) if e.questions_json else 0,
-            "created_at": e.created_at.isoformat() if e.created_at else None,
-        })
+        student = await db.get(Student, e.student_id)
+        result.append({"id": e.id, "student_name": student.name if student else "未知", "student_id": student.student_id if student else "", "score": e.score, "questions_count": len(e.questions_json) if e.questions_json else 0, "created_at": e.created_at.isoformat() if e.created_at else None})
     return result
 
 
-# ===== AI 模型配置 =====
-
 @router.get("/ai-providers")
-async def list_ai_providers(
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """查看所有 AI 模型配置"""
-    from models import AIProvider
-    providers = db.query(AIProvider).order_by(AIProvider.created_at.desc()).all()
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "provider": p.provider,
-            "base_url": p.base_url,
-            "model": p.model,
-            "is_active": p.is_active,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-        }
-        for p in providers
-    ]
+async def list_ai_providers(current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    providers = (await db.execute(select(AIProvider).order_by(AIProvider.created_at.desc()))).scalars().all()
+    return [{"id": p.id, "name": p.name, "provider": p.provider, "base_url": p.base_url, "model": p.model, "is_active": p.is_active, "created_at": p.created_at.isoformat() if p.created_at else None} for p in providers]
 
 
 @router.post("/ai-providers")
-async def create_ai_provider(
-    body: dict,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """新增 AI 模型配置"""
-    from models import AIProvider
-
+async def create_ai_provider(body: dict, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
     if body.get("is_active"):
-        db.query(AIProvider).filter(AIProvider.is_active == True).update({"is_active": False})
-
-    provider = AIProvider(
-        name=body["name"],
-        provider=body.get("provider", "openai-compatible"),
-        base_url=body["base_url"].rstrip("/"),
-        api_key=body["api_key"],
-        model=body["model"],
-        is_active=body.get("is_active", False),
-    )
+        providers = (await db.execute(select(AIProvider).filter(AIProvider.is_active == True))).scalars().all()
+        for p in providers:
+            p.is_active = False
+    provider = AIProvider(name=body["name"], provider=body.get("provider", "openai-compatible"), base_url=body["base_url"].rstrip("/"), api_key=body["api_key"], model=body["model"], is_active=body.get("is_active", False))
     db.add(provider)
-    db.commit()
-    db.refresh(provider)
-
+    await db.commit()
+    await db.refresh(provider)
     from services.open_model_service import open_model_service
-    open_model_service.reload_from_db(db)
-
-    return {
-        "id": provider.id,
-        "name": provider.name,
-        "model": provider.model,
-        "is_active": provider.is_active,
-        "message": "配置已添加并生效",
-    }
+    open_model_service.reload_from_db()
+    return {"id": provider.id, "name": provider.name, "model": provider.model, "is_active": provider.is_active, "message": "配置已添加并生效"}
 
 
 @router.put("/ai-providers/{provider_id}")
-async def update_ai_provider(
-    provider_id: int,
-    body: dict,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """更新 AI 模型配置"""
-    from models import AIProvider
-    provider = db.get(AIProvider, provider_id)
+async def update_ai_provider(provider_id: int, body: dict, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    provider = await db.get(AIProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="配置不存在")
-
     if body.get("is_active"):
-        db.query(AIProvider).filter(AIProvider.is_active == True, AIProvider.id != provider_id).update({"is_active": False})
-
+        others = (await db.execute(select(AIProvider).filter(AIProvider.is_active == True, AIProvider.id != provider_id))).scalars().all()
+        for p in others:
+            p.is_active = False
     for field in ["name", "provider", "base_url", "api_key", "model"]:
         if field in body:
             setattr(provider, field, body[field])
     if "is_active" in body:
         provider.is_active = body["is_active"]
-
-    db.commit()
-
+    await db.commit()
     from services.open_model_service import open_model_service
-    open_model_service.reload_from_db(db)
-
+    open_model_service.reload_from_db()
     return {"message": "配置已更新并生效"}
 
 
 @router.delete("/ai-providers/{provider_id}")
-async def delete_ai_provider(
-    provider_id: int,
-    current_user=Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """删除 AI 模型配置"""
-    from models import AIProvider
-    provider = db.get(AIProvider, provider_id)
+async def delete_ai_provider(provider_id: int, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    provider = await db.get(AIProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="配置不存在")
     was_active = provider.is_active
-    db.delete(provider)
-    db.commit()
-
+    await db.delete(provider)
+    await db.commit()
     if was_active:
         from services.open_model_service import open_model_service
-        fallback = db.query(AIProvider).filter(AIProvider.is_active == True).first()
+        fallback = (await db.execute(select(AIProvider).filter(AIProvider.is_active == True))).scalars().first()
         if not fallback:
-            fallback = db.query(AIProvider).first()
+            fallback = (await db.execute(select(AIProvider))).scalars().first()
             if fallback:
                 fallback.is_active = True
-                db.commit()
-        open_model_service.reload_from_db(db)
-
+                await db.commit()
+        open_model_service.reload_from_db()
     return {"message": "配置已删除"}
