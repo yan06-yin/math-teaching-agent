@@ -93,8 +93,9 @@ async def delete_teacher(teacher_id: int, current_user=Depends(require_admin), d
         subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
         for s in subs:
             await db.delete(s)
-    for a in assignments:
+        await db.flush()  # 先提交 submissions 的 DELETE
         await db.delete(a)
+    await db.flush()
 
     classes = (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()
     for c in classes:
@@ -132,13 +133,15 @@ async def admin_delete_class(class_id: int, current_user=Depends(require_admin),
     cls = await db.get(Class, class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-    # 先删该班级下的作业（FK 约束）
+    # 先删该班级下的作业提交（FK 约束），逐级 flush 确保顺序
     assignments = (await db.execute(select(Assignment).filter(Assignment.class_id == class_id))).scalars().all()
     for a in assignments:
         subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
         for s in subs:
             await db.delete(s)
+        await db.flush()  # 先提交 submission 的 DELETE，再删 assignment
         await db.delete(a)
+    await db.flush()
     # 再删邀请码和学生关联
     invites = (await db.execute(select(InviteCode).filter(InviteCode.class_id == class_id))).scalars().all()
     for i in invites:

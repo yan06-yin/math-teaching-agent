@@ -280,8 +280,9 @@ async def delete_teacher(current_user=Depends(require_teacher), db: AsyncSession
         subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
         for s in subs:
             await db.delete(s)
-    for a in assignments:
+        await db.flush()  # 先提交 submissions 的 DELETE
         await db.delete(a)
+    await db.flush()
 
     classes = (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()
     for c in classes:
