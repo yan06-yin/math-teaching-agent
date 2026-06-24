@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _read_file_base64(filepath: str) -> str:
+    """同步读取文件并返回 base64 编码（供 run_in_executor 使用）"""
+    import base64
+    with open(filepath, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
 async def _run_grading_background(grading_task_id: int):
     """后台执行批改（使用独立 session，不依赖 HTTP 请求）"""
     bg_db = SessionLocal()
@@ -39,15 +46,15 @@ async def _run_grading_background(grading_task_id: int):
             school_level = student.school_level if student else "初中"
             student_name = student.name if student else f"学生{task.student_id}"
 
-            # 读取图片转为 base64
+            # 读取图片转为 base64（文件 I/O 用线程池避免阻塞事件循环）
             photo_local_path = submission.photo_url
             if photo_local_path.startswith("/uploads/"):
                 photo_local_path = os.path.join(settings.UPLOAD_DIR, os.path.basename(photo_local_path))
 
             image_base64 = ""
             try:
-                with open(photo_local_path, "rb") as f:
-                    image_base64 = base64.b64encode(f.read()).decode("utf-8")
+                loop = asyncio.get_event_loop()
+                image_base64 = await loop.run_in_executor(None, _read_file_base64, photo_local_path)
             except Exception as e:
                 logger.error(f"读取图片失败: {e}")
 

@@ -88,7 +88,7 @@ class ExamAttempt(Base):
     questions_json = Column(JSON, nullable=False)     # 题目
     student_answers = Column(JSON, default=list)      # 学生答案
     score = Column(Float, default=0)
-    diagnostic_report = Column(JSON, default=dict)    # 诊断报告
+    diagnostic_report = Column(Text, default="")    # 诊断报告（Markdown 文本）
     learning_plan = Column(JSON, default=list)        # 学习计划
     details_json = Column(JSON, default=list)          # 逐题批改详情
     is_deleted = Column(Boolean, default=False)

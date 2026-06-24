@@ -79,11 +79,12 @@ async def generate_exam(
     }
 
     # 同步创建考试记录（空题目，稍后填充）
+    # student_answers=None 表示"尚未提交"，提交后才会设为列表
     exam = ExamAttempt(
         student_id=student_id,
         exam_config_json=exam_config,
         questions_json=[],
-        student_answers=[],
+        student_answers=None,
     )
     db.add(exam)
     db.flush()

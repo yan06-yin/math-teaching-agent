@@ -7,6 +7,7 @@ OpenModel / OpenAI 兼容 API 调用服务
 import asyncio
 import json
 import logging
+import threading
 from typing import Optional, TYPE_CHECKING
 
 import httpx
@@ -32,7 +33,11 @@ class OpenModelService:
         self._fallback_api_key = settings.AGNES_API_KEY
         self._fallback_base_url = settings.AGNES_BASE_URL
         self._fallback_model = settings.AGNES_MODEL
-        self._fallback_active = False  # 是否正在使用回退
+        # 使用 Lock 保护 _fallback_active，避免并发请求误触发降级
+        self._fallback_lock = threading.Lock()
+        self._fallback_active = False
+        # 共享 httpx 客户端（连接池复用，减少 TCP 握手开销）
+        self._client: Optional[httpx.AsyncClient] = None
 
     def reload_from_db(self, db_session=None):
         """从数据库加载活跃的 AI 提供商配置"""
@@ -57,6 +62,15 @@ class OpenModelService:
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
 
+    def _get_client(self, timeout: float = 120.0) -> httpx.AsyncClient:
+        """获取共享 httpx 客户端（懒初始化，连接池复用）"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=30.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return self._client
+
     async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None, timeout: float = 120.0) -> dict:
         """调用 AI 聊天接口，自带重试 + 错误降级到 Agnes Flash"""
         return await self._chat_with_fallback(messages, max_tokens, force_model, timeout=timeout)
@@ -64,13 +78,10 @@ class OpenModelService:
     async def _chat_with_fallback(self, messages: list[dict], max_tokens: int = 2048,
                                     force_model: str = None, is_retry: bool = False,
                                     timeout: float = 120.0) -> dict:
-        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash
-        注意：_fallback_active 是共享状态，并发下可能误触发其他请求走降级，
-        但因为降级目的是"模型挂了就救回来"，即使有几 ms 的窗口其他请求也走降级
-        不影响功能正确性（只是多付了 fallback 的 token 消耗），不追求精准锁定。
-        """
+        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash"""
         # 如果 force_model 指定了模型，临时切换
-        using_fallback = self._fallback_active or is_retry
+        with self._fallback_lock:
+            using_fallback = self._fallback_active or is_retry
 
         if using_fallback:
             api_key = self._fallback_api_key
@@ -105,8 +116,8 @@ class OpenModelService:
         last_error = None
         for attempt in range(max_attempts):
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=timeout)) as client:
-                    resp = await client.post(url, headers=headers, json=payload)
+                client = self._get_client(timeout)
+                resp = await client.post(url, headers=headers, json=payload)
 
                 if resp.status_code == 503:
                     await asyncio.sleep(3)
@@ -137,11 +148,13 @@ class OpenModelService:
         # 所有尝试都失败，且还没试过回退 -> 自动降级到 Agnes Flash
         if not using_fallback and not is_retry:
             logger.warning(f"模型 {model} 请求失败，自动降级到 Agnes AI Flash")
-            self._fallback_active = True
+            with self._fallback_lock:
+                self._fallback_active = True
             try:
                 return await self._chat_with_fallback(messages, max_tokens, force_model, is_retry=True, timeout=timeout)
             finally:
-                self._fallback_active = False
+                with self._fallback_lock:
+                    self._fallback_active = False
 
         raise ValueError(f"AI 请求多次重试后仍然失败 (model={model_label}): {last_error}")
 

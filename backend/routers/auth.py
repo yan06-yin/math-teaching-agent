@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Student, Teacher, ActivityLog, InviteCode, ClassStudent, Class, Assignment, AssignmentSubmission, ErrorRecord, HomeworkSubmission, ExamAttempt
 from schemas import (
-    StudentRegister, StudentLogin, StudentSetPassword, TeacherLogin, TeacherRegister, TokenResponse,
+    StudentRegister, StudentLogin, StudentSetPassword, StudentResetPassword,
+    TeacherLogin, TeacherRegister, TeacherResetPassword, TokenResponse,
 )
 from utils.auth import require_teacher, require_student
 from config import settings
@@ -176,10 +177,10 @@ async def login(body: StudentLogin, db: Session = Depends(get_db)):
 
 @router.post("/student/reset-password", response_model=TokenResponse)
 async def reset_student_password(
-    body: StudentLogin,
+    body: StudentResetPassword,
     db: Session = Depends(get_db),
 ):
-    """学生重置密码（通过姓名+学号验证身份后重置）"""
+    """学生重置密码（需提供旧密码验证身份）"""
     student = db.query(Student).filter(
         Student.student_id == body.student_id,
         Student.name == body.name,
@@ -192,7 +193,19 @@ async def reset_student_password(
             detail="学号或姓名不正确",
         )
 
-    student.password_hash = pwd_context.hash(body.password)
+    if not student.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该账号尚未设置密码，请使用注册流程",
+        )
+
+    if not pwd_context.verify(body.old_password, student.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="旧密码不正确",
+        )
+
+    student.password_hash = pwd_context.hash(body.new_password)
     student.last_login = datetime.now(timezone.utc)
     db.commit()
     db.refresh(student)
@@ -208,10 +221,10 @@ async def reset_student_password(
 
 @router.post("/teacher/reset-password")
 async def reset_teacher_password(
-    body: TeacherLogin,
+    body: TeacherResetPassword,
     db: Session = Depends(get_db),
 ):
-    """教师重置密码（通过用户名验证身份后重置）"""
+    """教师重置密码（需提供旧密码验证身份）"""
     teacher = db.query(Teacher).filter(
         Teacher.username == body.username,
         Teacher.is_deleted == False,
@@ -223,7 +236,13 @@ async def reset_teacher_password(
             detail="用户名不存在",
         )
 
-    teacher.password_hash = pwd_context.hash(body.password)
+    if not pwd_context.verify(body.old_password, teacher.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="旧密码不正确",
+        )
+
+    teacher.password_hash = pwd_context.hash(body.new_password)
     db.commit()
 
     token = create_access_token({"sub": str(teacher.id), "type": "teacher"})
@@ -321,10 +340,10 @@ async def teacher_login(body: TeacherLogin, db: Session = Depends(get_db)):
 async def teacher_register(body: TeacherRegister, db: Session = Depends(get_db)):
     """教师注册（开放注册）"""
     existing = db.query(Teacher).filter(
-        (Teacher.username == body.username) | (Teacher.name == body.name)
+        Teacher.username == body.username,
     ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="用户名或姓名已被注册")
+        raise HTTPException(status_code=400, detail="用户名已被注册")
 
     teacher = Teacher(
         name=body.name,

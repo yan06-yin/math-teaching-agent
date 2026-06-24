@@ -73,13 +73,15 @@ async def generate_exam_images(questions: list[dict]) -> list[dict]:
     """
     为题目列表生成配图。
     对每道有 image_prompt 的题，调用 Agnes Image API 生成图片。
-    全部完成后返回（带 image_url 的）题目列表。
+    使用 task_indices 正确映射回原 questions 列表，避免索引错位。
     """
     tasks = []
-    for q in questions:
+    task_indices = []  # 记录每个 task 对应的 questions 索引
+    for i, q in enumerate(questions):
         prompt = q.get("image_prompt", "").strip()
         if prompt:
             tasks.append(generate_image(prompt))
+            task_indices.append(i)
 
     if not tasks:
         return questions
@@ -87,9 +89,9 @@ async def generate_exam_images(questions: list[dict]) -> list[dict]:
     logger.info(f"开始为 {len(tasks)} 道题生成配图...")
     urls = await asyncio.gather(*tasks)
 
-    for i, url in enumerate(urls):
+    for j, url in enumerate(urls):
         if url:
-            questions[i]["image_url"] = url
+            questions[task_indices[j]]["image_url"] = url
 
     logger.info(f"图片生成完成: {sum(1 for u in urls if u)}/{len(urls)} 成功")
     return questions

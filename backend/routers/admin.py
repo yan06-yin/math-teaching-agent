@@ -272,11 +272,14 @@ async def admin_delete_class(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """管理员删除班级"""
+    """管理员删除班级（级联清理学生关联和邀请码）"""
     cls = db.get(Class, class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
-    db.delete(cls)
+    # 先清理该班级下的邀请码和学生关联
+    db.query(InviteCode).filter(InviteCode.class_id == class_id).delete(synchronize_session=False)
+    db.query(ClassStudent).filter(ClassStudent.class_id == class_id).delete(synchronize_session=False)
+    db.query(Class).filter(Class.id == class_id).delete(synchronize_session=False)
     db.commit()
     return {"message": "班级已删除"}
 

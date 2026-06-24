@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, cast, String
 
 from database import get_db
 from models import Student, Teacher, ErrorRecord, HomeworkSubmission, ExamAttempt, ActivityLog, AssignmentSubmission, Class, ClassStudent, GradingTask
@@ -186,11 +186,13 @@ async def get_all_students(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
             ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ).scalar() or 0
         exam_avg = db.query(func.avg(ExamAttempt.score)).filter(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
             ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ).scalar() or 0
 
         # 个人均分：已批改记录加权平均
@@ -203,6 +205,7 @@ async def get_all_students(
             ExamAttempt.student_id == s.id,
             ExamAttempt.is_deleted == False,
             ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ).scalar() or 0
         total_score = float(hw_avg or 0) * hw_valid + float(exam_avg or 0) * exam_valid
         total_count = hw_valid + exam_valid
@@ -357,6 +360,7 @@ async def get_teacher_dashboard(
             ExamAttempt.student_id.in_(student_ids_sub),
             ExamAttempt.is_deleted == False,
             ExamAttempt.student_answers != None,
+            cast(ExamAttempt.student_answers, String) != "[]",
         ),
     ).subquery()
 

@@ -3,6 +3,7 @@
 """
 import logging
 import os
+import secrets
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
@@ -18,8 +19,8 @@ class Settings(BaseSettings):
     DB_PATH: str = os.path.join(PROJECT_DIR, "database", "math_teaching.db")
     DATABASE_URL: str = f"sqlite:///{DB_PATH}"
 
-    # JWT
-    SECRET_KEY: str = "math-teaching-secret-key-change-in-production"
+    # JWT（生产环境必须通过环境变量 SECRET_KEY 设置，否则每次启动会重新生成）
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
 
@@ -39,10 +40,13 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
     @model_validator(mode="after")
-    def validate_database_url(self) -> "Settings":
-        """DATABASE_URL 为空时回退到 SQLite"""
+    def validate_settings(self) -> "Settings":
+        """DATABASE_URL 为空时回退到 SQLite；SECRET_KEY 为空时自动生成"""
         if not self.DATABASE_URL or not self.DATABASE_URL.strip():
             self.DATABASE_URL = f"sqlite:///{self.DB_PATH}"
+        if not self.SECRET_KEY:
+            self.SECRET_KEY = secrets.token_hex(32)
+            logging.warning("⚠️ SECRET_KEY 未设置，已自动生成随机密钥（重启后失效，生产环境请设置环境变量）")
         return self
 
 

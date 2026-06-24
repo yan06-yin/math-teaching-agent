@@ -1,7 +1,13 @@
 """
 DeepSeek V4 Flash 直接测试（绕过后端）
+用法: DEEPSEEK_API_KEY=your_key python diagnose_deepseek.py
 """
-import requests, json, time
+import requests, json, time, os
+
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+if not API_KEY:
+    print("请设置环境变量 DEEPSEEK_API_KEY 后运行")
+    exit(1)
 
 # ===== 直接测试 DeepSeek 是否可用 =====
 r = requests.post('https://api.openmodel.ai/v1/messages', json={
@@ -9,7 +15,7 @@ r = requests.post('https://api.openmodel.ai/v1/messages', json={
     'messages': [{'role': 'user', 'content': '用中文说你好'}],
     'max_tokens': 100,
 }, headers={
-    'Authorization': 'Bearer om-i2dbRbKmGY6YFg6knPkCKhZatmVkYyT4PqRFSp1Ev',
+    'Authorization': f'Bearer {API_KEY}',
     'Content-Type': 'application/json',
     'anthropic-version': '2023-06-01',
 }, timeout=30)
@@ -24,7 +30,7 @@ r = requests.post('https://api.openmodel.ai/v1/messages', json={
     'max_tokens': 2048,
     'system': '你是一位专业的数学教师。必须返回纯 JSON 格式。',
 }, headers={
-    'Authorization': 'Bearer om-i2dbRbKmGY6YFg6knPkCKhZatmVkYyT4PqRFSp1Ev',
+    'Authorization': f'Bearer {API_KEY}',
     'Content-Type': 'application/json',
     'anthropic-version': '2023-06-01',
 }, timeout=60)

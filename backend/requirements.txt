@@ -5,9 +5,13 @@ aiosqlite>=0.19.0
 pymysql>=1.0.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-bcrypt<4.0
+bcrypt>=3.1.0
 python-multipart>=0.0.6
 httpx>=0.27.0
 pillow>=10.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+
+# 可选：OCR 文字提取（安装后自动启用）
+# paddleocr>=2.6.0
+# paddlepaddle>=2.4.0

@@ -25,9 +25,24 @@ class StudentSetPassword(BaseModel):
     password: str = Field(..., min_length=6, max_length=128)
 
 
+class StudentResetPassword(BaseModel):
+    """学生重置密码（需提供旧密码验证身份）"""
+    student_id: str
+    name: str
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
 class TeacherLogin(BaseModel):
     username: str
     password: str
+
+
+class TeacherResetPassword(BaseModel):
+    """教师重置密码（需提供旧密码验证身份）"""
+    username: str
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 class TeacherRegister(BaseModel):
@@ -81,7 +96,7 @@ class ExamResult(BaseModel):
     score: float
     questions: list[dict]
     student_answers: list[dict]
-    diagnostic_report: dict
+    diagnostic_report: Optional[str] = ""  # Markdown 文本
     learning_plan: list[dict]
     created_at: datetime
 

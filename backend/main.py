@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI):
     # 确保上传目录存在
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     yield
+    # 关闭共享 httpx 客户端（释放连接池）
+    from services.open_model_service import open_model_service
+    if open_model_service._client and not open_model_service._client.is_closed:
+        await open_model_service._client.aclose()
 
 
 app = FastAPI(
@@ -59,11 +63,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 跨域
+# 跨域（allow_credentials=True 时不能用 *，改用正则匹配所有来源）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -110,7 +114,7 @@ if FRONTEND_DIR.exists() and (FRONTEND_DIR / "index.html").exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_frontend(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("_next/"):
-            return HTMLResponse(content="", status_code=404)
+            return JSONResponse(content={"detail": "Not Found"}, status_code=404)
         # 尝试精确匹配静态文件
         fp = FRONTEND_DIR / full_path
         if fp.exists() and fp.is_file():
