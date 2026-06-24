@@ -156,7 +156,7 @@ export default function ExamPage() {
                 <div><label className="block text-sm font-medium mb-1">薄弱知识点</label><input className="input" placeholder="一元二次方程,相似三角形" value={config.knowledgePoints} onChange={e => setConfig({...config, knowledgePoints: e.target.value})} /></div>
                 <div><label className="block text-sm font-medium mb-1">难度：{config.difficulty}/5</label><input type="range" min="1" max="5" value={config.difficulty} onChange={e => setConfig({...config, difficulty: +e.target.value})} className="w-full" /></div>
                 <div><label className="block text-sm font-medium mb-1">题目：{config.questionCount}</label><input type="range" min="1" max="30" value={config.questionCount} onChange={e => setConfig({...config, questionCount: +e.target.value})} className="w-full" /></div>
-                <label className="flex items-center gap-2 text-sm py-1"><input type="checkbox" checked={config.withImages} onChange={e => setConfig({...config, withImages: e.target.checked})} className="rounded" /> 🖼️ 配图（几何/函数题自动生成 SVG）</label>
+                <label className="flex items-center gap-2 text-sm py-1"><input type="checkbox" checked={config.withImages} onChange={e => setConfig({...config, withImages: e.target.checked})} className="rounded" /> 🎨 高清配图（立体几何/实景图用，每题多等 5-10 秒）</label>
                 <button onClick={handleGenerate} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "出题中..."}` : "🚀 生成试卷"}</button>
               </div>
               {errorMsg && (
