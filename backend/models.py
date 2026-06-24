@@ -228,7 +228,7 @@ class GradingTask(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
-    submission_id = Column(Integer, ForeignKey("homework_submissions.id"), nullable=True)
+    submission_id = Column(Integer, nullable=True)  # 关联 homework_submissions.id 或 exam_attempts.id
     task_type = Column(String(20), default="homework")  # homework / exam
     status = Column(String(20), default="pending")  # pending / processing / done / error
     result_json = Column(JSON, nullable=True)

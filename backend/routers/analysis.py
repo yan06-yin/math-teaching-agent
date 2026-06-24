@@ -28,14 +28,16 @@ async def get_student_profile(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    # 作业统计
+    # 作业统计（仅未删除的）
     homework_count = db.query(func.count(HomeworkSubmission.id)).filter(
-        HomeworkSubmission.student_id == student_id
+        HomeworkSubmission.student_id == student_id,
+        HomeworkSubmission.is_deleted == False,
     ).scalar() or 0
 
-    # 考试统计
+    # 考试统计（仅未删除的）
     exam_count = db.query(func.count(ExamAttempt.id)).filter(
-        ExamAttempt.student_id == student_id
+        ExamAttempt.student_id == student_id,
+        ExamAttempt.is_deleted == False,
     ).scalar() or 0
 
     # 平均分（仅已批改的）
@@ -74,10 +76,14 @@ async def get_student_profile(
     weak_points = [e.knowledge_point for e in errors[:5]] if errors else []
     strong_points = [e.knowledge_point for e in errors[-5:][::-1]] if len(errors) > 5 else []
 
-    # 趋势判断
+    # 趋势判断（仅已批改且未删除的）
     scores = (
         db.query(HomeworkSubmission.score)
-        .filter(HomeworkSubmission.student_id == student_id)
+        .filter(
+            HomeworkSubmission.student_id == student_id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.status == "done",
+        )
         .order_by(HomeworkSubmission.created_at)
         .all()
     )
@@ -116,13 +122,20 @@ async def get_score_trends(
 
     homeworks = (
         db.query(HomeworkSubmission.score, HomeworkSubmission.created_at)
-        .filter(HomeworkSubmission.student_id == student_id)
+        .filter(
+            HomeworkSubmission.student_id == student_id,
+            HomeworkSubmission.is_deleted == False,
+            HomeworkSubmission.status == "done",
+        )
         .order_by(HomeworkSubmission.created_at)
         .all()
     )
     exams = (
         db.query(ExamAttempt.score, ExamAttempt.created_at)
-        .filter(ExamAttempt.student_id == student_id)
+        .filter(
+            ExamAttempt.student_id == student_id,
+            ExamAttempt.is_deleted == False,
+        )
         .order_by(ExamAttempt.created_at)
         .all()
     )

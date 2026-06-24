@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -13,14 +13,22 @@ export default function StudentAssignments() {
   const [selected, setSelected] = useState<any>(null);
   const [answers, setAnswers] = useState<string[]>([]);
 
+  useEffect(() => {
+    if (!loaded && !loading) {
+      load();
+    }
+  }, []);
+
   const load = async () => {
     setLoading(true);
-    const r = await axios.get("/api/assignments/student", { headers: hdrs() });
-    setAssignments(r.data);
-    setLoaded(true);
-    setLoading(false);
+    try {
+      const r = await axios.get("/api/assignments/student", { headers: hdrs() });
+      setAssignments(r.data);
+    } catch (e) {} finally {
+      setLoaded(true);
+      setLoading(false);
+    }
   };
-  if (!loaded && !loading) load();
 
   const openAssignment = (a: any) => {
     setSelected(a);

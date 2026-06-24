@@ -329,11 +329,13 @@ async def get_teacher_dashboard(
     ).scalar() or 0
 
     total_homework = db.query(func.count(HomeworkSubmission.id)).filter(
-        HomeworkSubmission.student_id.in_(student_ids_sub)
+        HomeworkSubmission.student_id.in_(student_ids_sub),
+        HomeworkSubmission.is_deleted == False,
     ).scalar() or 0
 
     total_exams = db.query(func.count(ExamAttempt.id)).filter(
-        ExamAttempt.student_id.in_(student_ids_sub)
+        ExamAttempt.student_id.in_(student_ids_sub),
+        ExamAttempt.is_deleted == False,
     ).scalar() or 0
 
     # 班级平均分：每个学生个人均分 → 班级均分（等权重）

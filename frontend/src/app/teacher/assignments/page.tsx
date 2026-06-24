@@ -3,9 +3,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 
-const t = typeof window !== "undefined" ? localStorage.getItem("token") : "";
-const h = { Authorization: `Bearer ${t}` };
-
 export default function TeacherAssignments() {
   const [mode, setMode] = useState<"list" | "create">("list");
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -17,20 +14,31 @@ export default function TeacherAssignments() {
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
+  const headers = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") : ""}` });
+
+  useEffect(() => {
+    if (!loaded && !loading) {
+      loadAssignments();
+      loadClasses();
+    }
+  }, []);
+
   const loadAssignments = async () => {
     setLoading(true);
-    const r = await axios.get("/api/assignments/teacher", { headers: h });
-    setAssignments(r.data);
-    setLoading(false);
-    setLoaded(true);
+    try {
+      const r = await axios.get("/api/assignments/teacher", { headers: headers() });
+      setAssignments(r.data);
+    } catch (e) {} finally {
+      setLoading(false);
+      setLoaded(true);
+    }
   };
   const loadClasses = async () => {
     try {
-      const r = await axios.get("/api/classes", { headers: h });
+      const r = await axios.get("/api/classes", { headers: headers() });
       setClassList(r.data);
     } catch {}
   };
-  if (!loaded && !loading) { loadAssignments(); loadClasses(); }
 
   const addQuestion = () => setQuestions([...questions, ""]);
   const updateQ = (i: number, v: string) => {
@@ -45,7 +53,7 @@ export default function TeacherAssignments() {
       questions: questions.filter(q => q.trim()).map((q, i) => ({
         id: i + 1, question: q, answer: ""
       }))
-    }, { headers: h });
+    }, { headers: headers() });
     setTitle(""); setDesc(""); setQuestions([""]); setClassId(0);
     setMode("list");
     loadAssignments();

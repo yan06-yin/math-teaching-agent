@@ -64,7 +64,11 @@ class OpenModelService:
     async def _chat_with_fallback(self, messages: list[dict], max_tokens: int = 2048,
                                     force_model: str = None, is_retry: bool = False,
                                     timeout: float = 120.0) -> dict:
-        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash"""
+        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash
+        注意：_fallback_active 是共享状态，并发下可能误触发其他请求走降级，
+        但因为降级目的是"模型挂了就救回来"，即使有几 ms 的窗口其他请求也走降级
+        不影响功能正确性（只是多付了 fallback 的 token 消耗），不追求精准锁定。
+        """
         # 如果 force_model 指定了模型，临时切换
         using_fallback = self._fallback_active or is_retry
 

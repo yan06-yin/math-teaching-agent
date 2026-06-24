@@ -19,7 +19,7 @@ export default function UploadPage() {
       if (file) fd.append("file", file);
       if (manualInput.trim()) fd.append("student_answers", manualInput);
       const res = await axios.post(`/api/homework/upload`, fd, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "multipart/form-data" },
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }, // 不设 Content-Type，让 axios 自动处理 boundary
       });
       const sid = res.data.submission_id;
       setStatusMsg("AI 正在批改中，请稍候...");
