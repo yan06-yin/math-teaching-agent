@@ -107,9 +107,10 @@ async def delete_teacher(teacher_id: int, current_user=Depends(require_admin), d
             objs = (await db.execute(select(model).filter(model.student_id.in_(student_ids)))).scalars().all()
             for obj in objs:
                 await db.delete(obj)
+        # 软删除学生而非硬删，避免跨班级外键冲突
         students = (await db.execute(select(Student).filter(Student.id.in_(student_ids)))).scalars().all()
         for s in students:
-            await db.delete(s)
+            s.is_deleted = True
 
     await db.commit()
     return {"message": f"已删除教师 {teacher.name} 及所有关联数据"}
@@ -131,6 +132,14 @@ async def admin_delete_class(class_id: int, current_user=Depends(require_admin),
     cls = await db.get(Class, class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
+    # 先删该班级下的作业（FK 约束）
+    assignments = (await db.execute(select(Assignment).filter(Assignment.class_id == class_id))).scalars().all()
+    for a in assignments:
+        subs = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id))).scalars().all()
+        for s in subs:
+            await db.delete(s)
+        await db.delete(a)
+    # 再删邀请码和学生关联
     invites = (await db.execute(select(InviteCode).filter(InviteCode.class_id == class_id))).scalars().all()
     for i in invites:
         await db.delete(i)
