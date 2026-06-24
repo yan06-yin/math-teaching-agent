@@ -19,8 +19,8 @@ IMAGE_MODEL = "agnes-image-2.1-flash"
 
 
 def _get_image_api_key() -> str:
-    """获取图片 API Key——优先用配置的 fallback key"""
-    return getattr(open_model_service, "_fallback_api_key", settings.AGNES_API_KEY) or settings.AGNES_API_KEY
+    """获取图片 API Key——优先用环境变量"""
+    return settings.AGNES_API_KEY or ""
 
 
 async def generate_image(prompt: str, size: str = "1024x768") -> Optional[str]:

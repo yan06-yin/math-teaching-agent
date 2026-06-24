@@ -72,57 +72,30 @@ def seed_admin():
             logger.info(f"管理员账号创建成功 (admin / {ADMIN_PASSWORD})")
 
         # 检查 AI 模型配置
-        from models import AIProvider
         existing_provider = db.query(AIProvider).first()
         if not existing_provider:
-            # 默认使用 Agnes AI Flash（便宜，支持多模态图片识别）
-            default = AIProvider(
-                name="Agnes AI Flash (默认)",
-                provider="openai-compatible",
-                base_url="https://apihub.agnes-ai.com/v1",
-                api_key="sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE",
-                model="agnes-2.0-flash",
-                is_active=True,
-            )
-            db.add(default)
-            # 同时添加 DeepSeek V4 Flash 作为选项
-            deepseek = AIProvider(
-                name="DeepSeek V4 Flash",
-                provider="openai-compatible",
-                base_url="https://api.openmodel.ai/v1",
-                api_key="om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z",
-                model="deepseek-v4-flash",
-                is_active=False,
-            )
-            db.add(deepseek)
-            db.commit()
-            logger.info("已添加默认 AI 模型配置: Agnes AI Flash (默认) + DeepSeek V4 Flash (可选)")
-        else:
-            # 确保 DeepSeek 也在列表中（如果不存在），并更新 API Key
-            deepseek_exists = db.query(AIProvider).filter(AIProvider.model == "deepseek-v4-flash").first()
-            if not deepseek_exists:
-                deepseek = AIProvider(
-                    name="DeepSeek V4 Flash",
+            # 从环境变量读取默认 API Key
+            default_api_key = settings.AGNES_API_KEY or ""
+            default_base_url = settings.AGNES_BASE_URL
+            default_model = settings.AGNES_MODEL
+
+            if default_api_key:
+                default = AIProvider(
+                    name="Agnes AI Flash (默认)",
                     provider="openai-compatible",
-                    base_url="https://api.openmodel.ai/v1",
-                    api_key="om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z",
-                    model="deepseek-v4-flash",
-                    is_active=False,
+                    base_url=default_base_url,
+                    api_key=default_api_key,
+                    model=default_model,
+                    is_active=True,
                 )
-                db.add(deepseek)
-                db.commit()
-                logger.info("已添加 DeepSeek V4 Flash 选项")
+                db.add(default)
+                logger.info(f"已从环境变量添加默认 AI 模型: {default_model}")
             else:
-                # 更新 DeepSeek 的 API Key
-                deepseek_exists.api_key = "om-2vwv1jGxg1Yx4VTvTmKDqFkUp4KGcLPf1MWJbymHSY5z"
-                db.commit()
+                logger.warning("⚠️ 未设置 AGNES_API_KEY，跳过 AI 模型自动配置。请在管理后台手动添加。")
 
-            # 确保 Agnes 的 API Key 也是最新的
-            agnes_exists = db.query(AIProvider).filter(AIProvider.model == "agnes-2.0-flash").first()
-            if agnes_exists:
-                agnes_exists.api_key = "sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE"
-                db.commit()
-
+            db.commit()
+        else:
+            # 已存在配置：不覆写已有 key，只保证至少有一个活跃的
             if not db.query(AIProvider).filter(AIProvider.is_active == True).first():
                 first = db.query(AIProvider).first()
                 if first:

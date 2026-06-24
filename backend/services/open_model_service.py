@@ -28,10 +28,10 @@ class OpenModelService:
         self.base_url = settings.AGNES_BASE_URL
         self.model = settings.AGNES_MODEL
         self._provider_id: Optional[int] = None
-        # 底层回退模型（始终可用，用于多模态/降级）
-        self._fallback_api_key = "sk-MqM6HlfslE4i8ObyDYH07Wsgc1KNGkaGGFJG4STPAw8J6jzE"
-        self._fallback_base_url = "https://apihub.agnes-ai.com/v1"
-        self._fallback_model = "agnes-2.0-flash"
+        # 降级回退：没有数据库配置时，仍用环境变量中的 API key
+        self._fallback_api_key = settings.AGNES_API_KEY
+        self._fallback_base_url = settings.AGNES_BASE_URL
+        self._fallback_model = settings.AGNES_MODEL
         self._fallback_active = False  # 是否正在使用回退
 
     def reload_from_db(self, db_session=None):
