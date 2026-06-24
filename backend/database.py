@@ -137,6 +137,8 @@ async def get_db():
             pass  # async with 自动关闭
 
 
-# 保留同步 SessionLocal 供 seed_admin 使用
+# 保留同步 SessionLocal 供 seed_admin 和测试使用
 from sqlalchemy.orm import sessionmaker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
+# 兼容旧代码：test_api.py 等测试文件引用 engine
+engine = sync_engine
