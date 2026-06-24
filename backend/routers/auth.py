@@ -95,13 +95,22 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
         if existing:
             raise HTTPException(status_code=400, detail="该学号已被注册")
 
-        # 检查是否有软删除的同名学生 → 复活它（避免违反唯一约束）
+        # 检查是否有软删除的同名学生 → 彻底清干净后重建
         deleted = db.query(Student).filter(
             Student.student_id == body.student_id,
             Student.is_deleted == True,
         ).first()
         if deleted:
-            # 复活已删除的记录
+            # 清除旧学生的所有关联数据（考试记录、作业、错题等）
+            sid = deleted.id
+            db.query(ClassStudent).filter(ClassStudent.student_id == sid).delete(synchronize_session=False)
+            db.query(GradingTask).filter(GradingTask.student_id == sid).delete(synchronize_session=False)
+            db.query(ExamAttempt).filter(ExamAttempt.student_id == sid).delete(synchronize_session=False)
+            db.query(HomeworkSubmission).filter(HomeworkSubmission.student_id == sid).delete(synchronize_session=False)
+            db.query(ErrorRecord).filter(ErrorRecord.student_id == sid).delete(synchronize_session=False)
+            db.query(ActivityLog).filter(ActivityLog.student_id == sid).delete(synchronize_session=False)
+            db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == sid).delete(synchronize_session=False)
+            # 复活并更新信息
             deleted.is_deleted = False
             deleted.name = body.name
             deleted.password_hash = pwd_context.hash(body.password)
