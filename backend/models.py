@@ -19,9 +19,9 @@ class Student(Base):
     password_hash = Column(String(128), nullable=False, default="")
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
     role = Column(String(20), default="student", nullable=False)
-    last_login = Column(DateTime(timezone=True)(timezone=True), nullable=True)
+    last_login = Column(DateTime(timezone=True), nullable=True)
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     homework_submissions = relationship("HomeworkSubmission", back_populates="student")
     exam_attempts = relationship("ExamAttempt", back_populates="student")
@@ -38,7 +38,7 @@ class Teacher(Base):
     school = Column(String(100), default="")
     is_admin = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class Session(Base):
@@ -47,8 +47,8 @@ class Session(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
     token = Column(String(512), unique=True, nullable=False, index=True)
-    expires_at = Column(DateTime(timezone=True)(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class HomeworkSubmission(Base):
