@@ -19,9 +19,9 @@ class Student(Base):
     password_hash = Column(String(128), nullable=False, default="")
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
     role = Column(String(20), default="student", nullable=False)
-    last_login = Column(DateTime, nullable=True)
+    last_login = Column(DateTime(timezone=True)(timezone=True), nullable=True)
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
 
     homework_submissions = relationship("HomeworkSubmission", back_populates="student")
     exam_attempts = relationship("ExamAttempt", back_populates="student")
@@ -38,7 +38,7 @@ class Teacher(Base):
     school = Column(String(100), default="")
     is_admin = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
 
 
 class Session(Base):
@@ -47,8 +47,8 @@ class Session(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
     token = Column(String(512), unique=True, nullable=False, index=True)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True)(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True)(timezone=True), default=datetime.now(timezone.utc))
 
 
 class HomeworkSubmission(Base):
@@ -66,7 +66,7 @@ class HomeworkSubmission(Base):
     wrong_questions_json = Column(JSON, default=list)
     status = Column(String(20), default="pending")  # pending / grading / done / error
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     student = relationship("Student", back_populates="homework_submissions")
 
@@ -93,7 +93,7 @@ class ExamAttempt(Base):
     learning_plan = Column(JSON, default=list)        # 学习计划
     details_json = Column(JSON, default=list)          # 逐题批改详情
     is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     student = relationship("Student", back_populates="exam_attempts")
 
@@ -108,7 +108,7 @@ class ProblemBank(Base):
     question_text = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     explanation = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class ErrorRecord(Base):
@@ -121,8 +121,8 @@ class ErrorRecord(Base):
     student_answer = Column(Text, default="")
     correct_answer = Column(Text, default="")
     error_count = Column(Integer, default=1)
-    last_error_date = Column(DateTime, default=datetime.now(timezone.utc))
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    last_error_date = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     student = relationship("Student", back_populates="error_records")
 
@@ -148,7 +148,7 @@ class ActivityLog(Base):
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     activity_type = Column(String(50), nullable=False)  # homework / exam / login
     detail = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class Assignment(Base):
@@ -161,8 +161,8 @@ class Assignment(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, default="")
     questions_json = Column(JSON, default=list)
-    due_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class AssignmentSubmission(Base):
@@ -175,7 +175,7 @@ class AssignmentSubmission(Base):
     answers_json = Column(JSON, default=list)
     score = Column(Float, default=0)
     status = Column(String(20), default="submitted")
-    submitted_at = Column(DateTime, default=datetime.now(timezone.utc))
+    submitted_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
 
 class Class(Base):
@@ -186,7 +186,7 @@ class Class(Base):
     name = Column(String(100), nullable=False)
     teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False, index=True)
     school_level = Column(String(10), nullable=False)  # 小学/初中/高中
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     teacher = relationship("Teacher")
     members = relationship("ClassStudent", back_populates="class_", cascade="all, delete-orphan")
@@ -203,8 +203,8 @@ class InviteCode(Base):
     max_used_count = Column(Integer, default=0)  # 0=不限
     used_count = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
-    expires_at = Column(DateTime, nullable=True)  # NULL=永不过期
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=True)  # NULL=永不过期
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     class_ = relationship("Class", back_populates="invite_codes")
 
@@ -217,7 +217,7 @@ class ClassStudent(Base):
     student_id = Column(Integer, ForeignKey("students.id"), unique=True, nullable=False, index=True)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
     joined_via = Column(String(20), default="invite")  # invite / manual
-    joined_at = Column(DateTime, default=datetime.now(timezone.utc))
+    joined_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     class_ = relationship("Class", back_populates="members")
     student = relationship("Student")
@@ -234,8 +234,8 @@ class GradingTask(Base):
     status = Column(String(20), default="pending")  # pending / processing / done / error
     result_json = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
-    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class AIProvider(Base):
@@ -249,4 +249,4 @@ class AIProvider(Base):
     api_key = Column(String(512), nullable=False)
     model = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=False)  # 只有一个可以活跃
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
