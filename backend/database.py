@@ -111,6 +111,16 @@ def init_db():
                         except Exception as e:
                             conn.rollback()
                             logger.warning(f"添加 {table}.{column} 失败（可忽略）: {e}")
+
+        # 移除 grading_tasks.submission_id 的外键约束（该字段同时关联 homework 和 exam，不应用 FK）
+        if "grading_tasks" in table_names:
+            with engine.connect() as conn:
+                try:
+                    conn.execute(sa_text("ALTER TABLE grading_tasks DROP CONSTRAINT IF EXISTS grading_tasks_submission_id_fkey"))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+
     except Exception as e:
         logger.warning(f"数据库兼容性检查（可忽略）: {e}")
 
