@@ -2,6 +2,7 @@
 出题服务 — 智能出题、组卷、诊断报告生成
 使用 Agnes AI 替代 Coze
 """
+import json
 import logging
 from typing import Optional
 
@@ -137,7 +138,7 @@ async def grade_exam(db: Session, exam_id: int, answers: list[dict]) -> tuple[Ex
                     report_parts.append(f"  💡 解析：{w['explanation']}")
 
         report_parts.extend(["", "💪 建议：", "根据本次答题情况，建议针对错题涉及的知识点进行复习。"])
-        exam.diagnostic_report = "\n".join(report_parts)
+        exam.diagnostic_report = json.dumps("\n".join(report_parts), ensure_ascii=False)
         db.commit()
 
         # 记录错题到 ErrorRecord
