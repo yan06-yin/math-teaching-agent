@@ -172,9 +172,9 @@ export default function ExamPage() {
               <div className="card mt-6">
                 <h3 className="font-semibold mb-3">📋 历史考试记录</h3>
                 <div className="space-y-2">
-                  {pastExams.map((e) => (
+                  {pastExams.map((e, idx) => (
                     <button key={e.id} onClick={() => viewPastExam(e.id)} className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 transition flex items-center justify-between cursor-pointer">
-                      <div><span className="font-medium">第{e.id}次考试</span><span className="text-sm text-gray-400 ml-2">{e.questions_count} 题</span></div>
+                      <div><span className="font-medium">第{pastExams.length - idx}次考试</span><span className="text-sm text-gray-400 ml-2">{e.questions_count} 题</span></div>
                       <div className="flex items-center gap-2"><span className="text-lg font-bold text-[#6366f1]">{e.score ?? "—"}</span><span className="text-gray-400 text-sm">分 →</span></div>
                     </button>
                   ))}

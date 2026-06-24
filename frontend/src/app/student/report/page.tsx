@@ -36,8 +36,8 @@ export default function ReportPage() {
         <div className="card mb-6">
           <h3 className="font-semibold mb-3">考试历史</h3>
           <div className="flex gap-2 overflow-x-auto pb-2">
-            {exams.map((e) => (
-              <button key={e.id} onClick={() => loadDetail(e.id)} className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${selected?.id === e.id ? "bg-[#4f46e5] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>第{e.id}次 · {e.score ?? "?"}分</button>
+            {exams.map((e, idx) => (
+              <button key={e.id} onClick={() => loadDetail(e.id)} className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer ${selected?.id === e.id ? "bg-[#4f46e5] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>第{exams.length - idx}次 · {e.score ?? "?"}分</button>
             ))}
             {exams.length === 0 && <span className="text-gray-400 text-sm">暂无考试记录</span>}
           </div>
