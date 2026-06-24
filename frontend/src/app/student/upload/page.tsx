@@ -10,28 +10,33 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [statusMsg, setStatusMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleSubmit = async () => {
     if (!file && !manualInput.trim()) return;
-    setLoading(true); setResult(null); setStatusMsg("上传中...");
+    setLoading(true); setResult(null); setStatusMsg("上传中..."); setErrorMsg("");
     try {
       const fd = new FormData();
       if (file) fd.append("file", file);
       if (manualInput.trim()) fd.append("student_answers", manualInput);
+      const token = localStorage.getItem("token");
       const res = await axios.post(`/api/homework/upload`, fd, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }, // 不设 Content-Type，让 axios 自动处理 boundary
+        headers: { Authorization: `Bearer ${token}` },
       });
       const sid = res.data.submission_id;
       setStatusMsg("AI 正在批改中，请稍候...");
 
-      // 轮询等待批改完成
       let attempts = 0;
-      const maxAttempts = 60; // 最多等 3 分钟（3s 间隔）
+      const maxAttempts = 60;
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 3000));
         attempts++;
+        const elapsed = attempts * 3;
+        if (elapsed < 30) setStatusMsg(`⏳ AI 批改中... ${elapsed}s`);
+        else if (elapsed < 60) setStatusMsg(`⏳ 识别题目中... ${elapsed}s`);
+        else setStatusMsg(`⏳ 还在批改... ${elapsed}s（题目越多越久）`);
         const statusRes = await axios.get(`/api/homework/upload/${sid}/status`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (statusRes.data.status === "done") {
           setResult(statusRes.data.result || statusRes.data);
@@ -40,14 +45,13 @@ export default function UploadPage() {
           return;
         }
         if (statusRes.data.status === "error") {
-          alert("批改失败：" + (statusRes.data.error || "未知错误"));
-          setLoading(false);
-          return;
+          throw new Error(statusRes.data.error || "批改失败");
         }
       }
-      alert("批改超时，请稍后在作业列表中查看结果");
-    } catch (e: any) { alert("上传失败：" + (e.response?.data?.detail || e.message)); }
-    finally { setLoading(false); }
+      throw new Error("批改超时（3 分钟），请稍后在作业列表中查看结果");
+    } catch (e: any) {
+      setErrorMsg(e.response?.data?.detail || e.message || "上传失败");
+    } finally { setLoading(false); setStatusMsg(""); }
   };
 
   return (
@@ -70,6 +74,18 @@ export default function UploadPage() {
               <textarea className="input min-h-[120px]" placeholder="1. 解方程 2x+3=7&#10;答案：x=2" value={manualInput} onChange={e => setManualInput(e.target.value)} />
             </div>
             <button onClick={handleSubmit} disabled={!file && !manualInput.trim() || loading} className="btn-primary w-full text-lg py-3">{loading ? (statusMsg || "AI 正在批改中...") : "🤖 开始批改"}</button>
+            {loading && (
+              <div className="mt-4">
+                <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-indigo-500 h-2 rounded-full animate-pulse" style={{ width: "60%" }} /></div>
+                <p className="text-gray-400 text-sm mt-2 text-center">请勿关闭页面</p>
+              </div>
+            )}
+            {errorMsg && (
+              <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">
+                <p>⚠️ {errorMsg}</p>
+                <button onClick={handleSubmit} className="mt-2 text-xs text-indigo-600 hover:underline">🔄 重新上传</button>
+              </div>
+            )}
           </>
         ) : (
           <div className="space-y-6">

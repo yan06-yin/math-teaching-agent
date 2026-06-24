@@ -112,11 +112,33 @@ export default function ExamPage() {
 
   // 是否显示"正在出题/批改"的独立状态页
   if (loading && (pollStatus || step !== "grading") && !result) {
+    const currentStep = step === "config" ? 1 : step === "taking" ? 3 : 4;
+    const elapsed = pollStatus ? parseInt(pollStatus.match(/(\d+)s/)?.[1] || "0") : 0;
+    const progressPct = Math.min(95, elapsed * 2); // 每秒约2%，最大95%
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="spinner spinner-lg mb-4"></div>
-          <p className="text-gray-500">{pollStatus || "处理中..."}</p>
+        <div className="text-center max-w-md mx-auto px-6">
+          {/* 步骤指示器 */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            {["配置", "出题", "答题", "批改", "结果"].map((s, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  i + 1 < currentStep ? "bg-green-500 text-white" :
+                  i + 1 === currentStep ? "bg-indigo-500 text-white animate-pulse" :
+                  "bg-gray-200 text-gray-400"
+                }`}>{i + 1 < currentStep ? "✓" : i + 1}</div>
+                {i < 4 && <div className={`w-6 h-0.5 ${i + 1 < currentStep ? "bg-green-500" : "bg-gray-200"}`} />}
+              </div>
+            ))}
+          </div>
+          {/* 进度条 */}
+          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+            <div className="bg-indigo-500 h-2 rounded-full transition-all duration-1000" style={{ width: `${progressPct}%` }} />
+          </div>
+          <div className="spinner spinner-lg mb-4 mx-auto"></div>
+          <p className="text-gray-600 font-medium">{pollStatus || "处理中..."}</p>
+          <p className="text-gray-400 text-sm mt-2">请勿关闭页面</p>
         </div>
       </div>
     );
@@ -137,7 +159,12 @@ export default function ExamPage() {
                 <label className="flex items-center gap-2 text-sm py-1"><input type="checkbox" checked={config.withImages} onChange={e => setConfig({...config, withImages: e.target.checked})} className="rounded" /> 🖼️ 配图（几何/函数题自动生成 SVG）</label>
                 <button onClick={handleGenerate} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "出题中..."}` : "🚀 生成试卷"}</button>
               </div>
-              {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">⚠️ {errorMsg}</div>}
+              {errorMsg && (
+                <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">
+                  <p>⚠️ {errorMsg}</p>
+                  <button onClick={handleGenerate} className="mt-2 text-xs text-indigo-600 hover:underline">🔄 重新出题</button>
+                </div>
+              )}
             </div>
 
             {/* 历史考试记录 */}
@@ -176,7 +203,12 @@ export default function ExamPage() {
               </div>
             ))}
             <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">{loading ? `⏳ ${pollStatus || "AI 批改中..."}` : "✅ 提交答卷"}</button>
-          {errorMsg && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">⚠️ {errorMsg}</div>}
+          {errorMsg && (
+            <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 mt-4">
+              <p>⚠️ {errorMsg}</p>
+              <button onClick={handleSubmit} className="mt-2 text-xs text-indigo-600 hover:underline">🔄 重新提交</button>
+            </div>
+          )}
           </div>
         )}
         {step === "grading" && result && (
