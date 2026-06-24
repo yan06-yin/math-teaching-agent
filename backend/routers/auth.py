@@ -23,30 +23,54 @@ import secrets
 
 logger = logging.getLogger(__name__)
 
-# 尝试初始化 bcrypt，如果 C 扩展不可用则回退到纯 Python SHA-256
+# ===== 密码哈希 — 同时支持 bcrypt（新密码）和 SHA-256（bcrypt 4.1 不兼容期存的旧密码）=====
+
 try:
-    _test_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    _test_ctx.hash("test")
-    pwd_context = _test_ctx
+    _bcrypt_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _bcrypt_ctx.hash("test")
+    _has_bcrypt = True
     logger.info("使用 bcrypt 密码哈希")
 except Exception:
+    _has_bcrypt = False
     logger.warning("bcrypt C 扩展不可用，回退到纯 Python SHA-256")
 
-    class FallbackPwdContext:
-        def hash(self, password: str) -> str:
-            salt = secrets.token_hex(16)
-            h = hashlib.sha256((password + salt).encode()).hexdigest()
-            return f"sha256${salt}${h}"
-        def verify(self, password: str, hashed: str) -> bool:
-            try:
-                parts = hashed.split("$")
-                if len(parts) == 3 and parts[0] == "sha256":
-                    return hashlib.sha256((password + parts[1]).encode()).hexdigest() == parts[2]
-            except Exception:
-                pass
-            return False
 
-    pwd_context = FallbackPwdContext()
+def _hash_password(password: str) -> str:
+    """哈希密码，优先用 bcrypt"""
+    if _has_bcrypt:
+        return _bcrypt_ctx.hash(password)
+    salt = secrets.token_hex(16)
+    h = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"sha256${salt}${h}"
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    """验证密码：bcrypt 优先，兼容 SHA-256 旧格式"""
+    if not hashed:
+        return False
+    if hashed.startswith("sha256$"):
+        try:
+            parts = hashed.split("$")
+            return len(parts) == 3 and hashlib.sha256((password + parts[1]).encode()).hexdigest() == parts[2]
+        except Exception:
+            return False
+    if _has_bcrypt:
+        return _bcrypt_ctx.verify(password, hashed)
+    try:
+        parts = hashed.split("$")
+        return len(parts) == 3 and parts[0] == "sha256" and hashlib.sha256((password + parts[1]).encode()).hexdigest() == parts[2]
+    except Exception:
+        return False
+
+
+class _PasswordContext:
+    """统一接口，兼容原来 pwd_context 的调用方式"""
+    def hash(self, password: str) -> str:
+        return _hash_password(password)
+    def verify(self, password: str, hashed: str) -> bool:
+        return _verify_password(password, hashed)
+
+pwd_context = _PasswordContext()
 
 router = APIRouter()
 
@@ -71,6 +95,22 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
         if existing:
             raise HTTPException(status_code=400, detail="该学号已被注册")
 
+        # 检查是否有软删除的同名学生 → 复活它（避免违反唯一约束）
+        deleted = db.query(Student).filter(
+            Student.student_id == body.student_id,
+            Student.is_deleted == True,
+        ).first()
+        if deleted:
+            # 复活已删除的记录
+            deleted.is_deleted = False
+            deleted.name = body.name
+            deleted.password_hash = pwd_context.hash(body.password)
+            deleted.school_level = body.school_level
+            deleted.role = "student"
+            deleted.last_login = None
+            db.flush()
+            return _finish_register(db, deleted, body.invite_code)
+
         student = Student(
             name=body.name,
             student_id=body.student_id,
@@ -81,42 +121,47 @@ async def register(body: StudentRegister, db: Session = Depends(get_db)):
         db.add(student)
         db.flush()  # 获取 student.id
 
-        # 处理邀请码：如果有则自动加入班级
-        if body.invite_code:
-            invite = db.query(InviteCode).filter(
-                InviteCode.code == body.invite_code,
-                InviteCode.is_active == True,
-            ).first()
-            if not invite:
-                raise HTTPException(status_code=400, detail="邀请码无效")
-            if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
-                raise HTTPException(status_code=400, detail="邀请码已过期")
-            if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
-                raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+        return _finish_register(db, student, body.invite_code)
 
-            cs = ClassStudent(
-                student_id=student.id,
-                class_id=invite.class_id,
-                joined_via="invite",
-            )
-            db.add(cs)
-            invite.used_count += 1
-
-        db.commit()
-        db.refresh(student)
-
-        token = create_access_token({"sub": str(student.id), "type": "student"})
-        return TokenResponse(
-            access_token=token,
-            token_type="bearer",
-            user_type="student",
-            student_id=student.id,
-        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"注册失败: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
+
+
+def _finish_register(db: Session, student: Student, invite_code: str | None = None) -> TokenResponse:
+    """注册收尾：处理邀请码 + 生成 token"""
+    if invite_code:
+        invite = db.query(InviteCode).filter(
+            InviteCode.code == invite_code,
+            InviteCode.is_active == True,
+        ).first()
+        if not invite:
+            raise HTTPException(status_code=400, detail="邀请码无效")
+        if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="邀请码已过期")
+        if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
+            raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+
+        cs = ClassStudent(
+            student_id=student.id,
+            class_id=invite.class_id,
+            joined_via="invite",
+        )
+        db.add(cs)
+        invite.used_count += 1
+
+    db.commit()
+    db.refresh(student)
+
+    token = create_access_token({"sub": str(student.id), "type": "student"})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user_type="student",
+        student_id=student.id,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

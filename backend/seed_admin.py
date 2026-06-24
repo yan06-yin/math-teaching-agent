@@ -9,31 +9,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import init_db, SessionLocal
 from models import Teacher, AIProvider
-import hashlib
-import secrets
 from sqlalchemy import text
 from config import settings
-from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 
-# 兼容 bcrypt 不可用的环境
-try:
-    _test_ctx_pass = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    _test_ctx_pass.hash("test")
-    pwd_context = _test_ctx_pass
-except Exception:
-    class _FallbackPwd:
-        def hash(self, pw):
-            salt = secrets.token_hex(16)
-            return f"sha256${salt}${hashlib.sha256((pw + salt).encode()).hexdigest()}"
-        def verify(self, pw, h):
-            try:
-                parts = h.split("$")
-                return parts[0] == "sha256" and hashlib.sha256((pw + parts[1]).encode()).hexdigest() == parts[2]
-            except Exception:
-                return False
-    pwd_context = _FallbackPwd()
+# 兼容 bcrypt + 旧 SHA-256 格式（共用 routers/auth.py 的 _verify_password）
+from routers.auth import _hash_password, _verify_password
+
+pwd_context = type("PwdCtx", (), {"hash": staticmethod(_hash_password), "verify": staticmethod(_verify_password)})()
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin123"
