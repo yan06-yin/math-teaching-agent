@@ -1,136 +1,130 @@
 # 数学教学智能体
 
-基于 AI 的数学教学辅助系统，专为初中数学老师设计。支持作业拍照批改、智能出题组卷、诊断报告与个性化学习计划。
+基于 AI 的数学教学辅助系统，专为初中数学老师设计。支持拍照布置作业、AI 批改、智能出题、诊断报告与个性化学习计划。
 
-## 功能特性
+## ✨ 功能特性
 
-- 📸 **拍照批改** — 学生上传作业照片，AI 自动识别并批改，生成评语和错题讲解
-- 📝 **智能出题** — 根据学生薄弱知识点自动生成试卷，支持调整难度和题量
-- 📊 **诊断报告** — 考试后自动生成学习诊断，可视化呈现学习趋势
-- 🗓️ **学习计划** — AI 制定两周个性化学习计划，帮助学生查漏补缺
-- 👨‍🏫 **教师端** — 全班错题汇总、知识点薄弱热力图、学生问题排行
-- ⚙️ **管理员端** — 系统总览、教师/班级/学生管理、AI 模型配置切换
+| 功能 | 说明 |
+|------|------|
+| 📷 **拍照布置作业** | 老师拍照上传，学生直接看到作业图片，在线提交答案 |
+| 📸 **AI 拍照批改** | 学生上传作业照片，AI 自动识别并批改，生成评语和错题讲解 |
+| 📝 **智能出题** | 根据学生薄弱知识点自动生成试卷，支持调整难度和题量 |
+| 📊 **诊断报告** | 考试后自动生成学习诊断，可视化呈现学习趋势 |
+| 🗓️ **学习计划** | AI 制定两周个性化学习计划，帮助学生查漏补缺 |
+| 👨‍🏫 **教师端** | 全班错题汇总、知识点热力图、学生管理、班级管理 |
+| ⚙️ **管理员端** | 系统总览、用户管理、AI 模型热切换 |
 
-## 快速部署（Railway）
+## 🚀 5 分钟部署
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/your-template)
+### Railway（推荐）
 
-### 1. 部署步骤
+1. **Fork** 本仓库
+2. 访问 [Railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**
+3. 添加环境变量 `AGNES_API_KEY`（[免费获取](https://apihub.agnes-ai.com)）
+4. 完成！自动生成域名可访问
 
-1. 将代码推送到 GitHub 仓库
-2. 在 [Railway.app](https://railway.app) 新建项目，连接 GitHub 仓库
-3. Railway 自动检测 Dockerfile 并构建
-4. 在 Railway → **Variables** 添加环境变量：
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `AGNES_API_KEY` | ✅ | Agnes AI API Key（[获取](https://apihub.agnes-ai.com)） |
-| `DATABASE_URL` | 自动 | Railway PostgreSQL 自动注入 |
-
-5. 部署完成后打开生成的域名即可使用
-
-### 2. 本地开发
+### Docker（自部署）
 
 ```bash
-# 后端
-cd backend
-cp .env.example .env  # 编辑 .env 填入 AGNES_API_KEY
+git clone https://github.com/yan06-yin/math-teaching-agent.git
+cd math-teaching-agent
+cp backend/.env.example backend/.env  # 编辑填入 AGNES_API_KEY
+docker-compose up -d
+# 访问 http://localhost:8080
+```
+
+### 本地开发
+
+```bash
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-
-# 前端（可选，后端已内嵌静态页面）
-cd frontend
-npm install
-npm run dev
+cp backend/.env.example backend/.env
+cd frontend && npm install && npm run build && cp -r out ../backend/frontend && cd ..
+cd backend && python main.py
+# 访问 http://localhost:8080
 ```
 
-### 3. 管理员账号
+> 📖 完整部署指南（含 Render / Fly.io / docker-compose）：[DEPLOYMENT.md](DEPLOYMENT.md)
 
-首次启动自动创建：
-- 用户名：`admin`
-- 密码：`admin123`
+## 🔑 默认账号
 
-登录后请先在 **AI 模型** 页面配置 API Key。
+| 角色 | 账号 | 密码 |
+|------|------|------|
+| 管理员 | `admin` | `admin123` |
 
-## 项目结构
+首次部署后请立即修改密码。学生和教师通过页面注册。
+
+## 🏗️ 项目结构
 
 ```
-backend/                     # FastAPI 后端
-├── main.py                  # 应用入口 + 静态文件托管
-├── models.py                # 数据库模型（15 个 ORM 类）
-├── schemas.py               # 请求/响应模型
-├── database.py              # 异步数据库连接（asyncpg/aiosqlite）
-├── routers/                 # API 路由（8 个模块）
-│   ├── auth.py              # 认证（注册/登录/密码重置）
-│   ├── homework.py          # 作业异步批改
-│   ├── exam.py              # 考试异步出题/批改
-│   ├── analysis.py          # 学习画像/趋势
-│   ├── teacher.py           # 教师仪表盘/错题统计
-│   ├── assignments.py       # 教师发布作业
-│   ├── classes.py           # 班级管理/邀请码
-│   └── admin.py             # 系统管理
-├── services/                # 业务服务
-│   ├── open_model_service.py # AI 多模型调用（降级/回退）
-│   ├── exam_service.py      # 出题/批改逻辑
-│   ├── image_service.py     # 配图生成
-│   └── ocr_service.py      # OCR 文字提取（可选）
-└── utils/
-    ├── auth.py              # JWT 认证依赖
-    └── knowledge_mapper.py  # 知识点规范化
+math-teaching-agent/
+├── Dockerfile                    # 多阶段构建（前端+后端）
+├── docker-compose.yml            # 一键自部署
+├── DEPLOYMENT.md                 # 部署指南
+├── requirements.txt              # Python 依赖
+│
+├── backend/                      # FastAPI 后端
+│   ├── main.py                   # 应用入口 + 静态文件托管
+│   ├── models.py                 # 数据库模型（15 个 ORM 类）
+│   ├── schemas.py                # 请求/响应模型
+│   ├── database.py               # 异步数据库（asyncpg/aiosqlite）
+│   ├── config.py                 # 环境变量配置
+│   ├── seed_admin.py             # 自动创建管理员
+│   ├── routers/                  # API 路由
+│   │   ├── auth.py               # 认证（注册/登录/密码重置）
+│   │   ├── homework.py           # 作业拍照批改
+│   │   ├── exam.py               # 考试出题/批改
+│   │   ├── analysis.py           # 学习画像/趋势
+│   │   ├── teacher.py            # 教师仪表盘/错题统计
+│   │   ├── assignments.py        # 教师发布作业（支持拍照）
+│   │   ├── classes.py            # 班级管理/邀请码
+│   │   └── admin.py              # 系统管理
+│   ├── services/                 # 业务服务
+│   │   ├── open_model_service.py # AI 多模型调用（自动降级）
+│   │   ├── exam_service.py       # 出题/批改逻辑
+│   │   ├── image_service.py      # 配图生成
+│   │   └── ocr_service.py        # OCR（可选）
+│   └── utils/
+│       ├── auth.py               # JWT 认证
+│       └── knowledge_mapper.py   # 知识点规范化
+│
+└── frontend/                     # Next.js 前端
+    └── src/app/
+        ├── page.tsx              # 登录/注册页
+        ├── student/              # 学生端（6 个页面）
+        ├── teacher/              # 教师端（2 个页面）
+        └── admin/                # 管理员（1 个页面）
 ```
 
-## 技术栈
+## 🧪 测试
+
+```bash
+# 单元测试
+cd backend && python -m pytest test_api.py -v
+
+# 全链路 E2E 测试（需先启动服务）
+python e2e_test.py --url http://localhost:8080
+```
+
+## 🛠️ 技术栈
 
 | 层 | 技术 |
 |----|------|
-| 前端 | Next.js 14 + Tailwind CSS + Recharts |
-| 后端 | Python FastAPI + 异步 SQLAlchemy |
-| 数据库 | PostgreSQL（生产）/ SQLite（开发） |
-| AI 接口 | OpenAI 兼容 API（Agnes / DeepSeek / GPT 等） |
-| 测试 | pytest（24 单元测试）+ E2E 全链路测试（71 项） |
+| 前端 | Next.js 14 + Tailwind CSS + Recharts + Lucide Icons |
+| 后端 | Python FastAPI + 异步 SQLAlchemy 2.0 |
+| 数据库 | SQLite（开发）/ PostgreSQL（生产） |
+| AI | OpenAI 兼容 API（Agnes AI / DeepSeek / GPT 等） |
+| 认证 | JWT（python-jose）+ bcrypt/SHA-256 |
+| 部署 | Docker + Railway / Render / Fly.io |
 
-## 测试覆盖
+## 📝 常见问题
 
-```bash
-cd backend
-python -m pytest test_api.py test_comprehensive.py -v
-# 输出：24 passed
+**Q: AI 批改报错？** 检查 `AGNES_API_KEY` 是否设置。管理后台可切换其他 AI 模型。
 
-# 全链路 E2E 测试（需要运行中的服务）
-python ../e2e_test.py --url http://localhost:8000
-# 输出：71 passed
-```
+**Q: 可以换 AI 模型吗？** 可以！管理后台 → AI 模型，添加任意 OpenAI 兼容 API 即可。
 
-### 测试覆盖范围
+**Q: 数据会丢失吗？** SQLite 在重新部署时会丢失，建议挂载 Volume 或使用 PostgreSQL。详见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
-| 模块 | 测试项数 | 覆盖内容 |
-|------|---------|---------|
-| 健康检查 | 2 | 状态、数据库类型 |
-| 学生 | 10 | 注册/重复/短密码/登录/密码重置 |
-| 考试系统 | 8 | 出题/轮询/提交/批改/重复提交/报告 |
-| 作业 | 5 | 上传/列表/状态/结果/404 |
-| 学生分析 | 3 | 画像/趋势/权限 |
-| 教师端 | 9 | 注册/班级/邀请码 |
-| 班级 | 7 | 创建/邀请码/加入/重复/无效码 |
-| 作业发布 | 6 | 发布/查看/提交/重复 |
-| 教师管理 | 5 | 学生列表/信息/错题/汇总 |
-| 管理员 | 8 | 登录/仪表盘/CRUD/AI模型 |
-| 安全 | 4 | 未登录/跨角色/伪造token |
-| 边界 | 4 | 不存在ID/跨学生/长学号/删除 |
-
-## 常见问题
-
-**Q: 为什么出题很慢？**
-A: 出题需要调用 AI API，通常 3-5 秒完成。如果勾选了"高清配图"，每题额外加 5-10 秒。默认的 SVG 配图是免费的。
-
-**Q: 学生删了再注册，旧数据还在吗？**
-A: 不再。删除学生时会清空所有关联数据（考试、作业、错题等），重新注册后是完全新的开始。
-
-**Q: 可以换别的 AI 模型吗？**
-A: 可以。管理员登录后，在 AI 模型管理页面添加任意兼容 OpenAI API 的模型（DeepSeek、GPT 等），保存后立即生效，无需重启。
-
-**Q: 部署后登录不上？**
-A: 确保在 Railway 环境变量中设置了 `AGNES_API_KEY`，否则 AI 功能不可用但登录应正常。管理员密码为 `admin123`。
+**Q: 学生删了再注册？** 旧数据完全清除，重新注册是全新开始。
 
 ## License
 
