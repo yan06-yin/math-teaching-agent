@@ -5,7 +5,7 @@ import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -172,7 +172,3 @@ async def join_class(body: JoinClass, current_user=Depends(require_student), db:
     await db.commit()
     cls = await db.get(Class, invite.class_id)
     return {"message": f"成功加入班级 {cls.name}", "class_id": cls.id, "class_name": cls.name}
-
-
-# 需要 import func
-from sqlalchemy import func

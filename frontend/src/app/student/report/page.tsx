@@ -3,6 +3,16 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 
+/** 渲染前清理 SVG — 移除 script、事件处理器等危险元素 */
+function sanitizeSvg(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/on\w+="[^"]*"/gi, "")
+    .replace(/on\w+='[^']*'/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 export default function ReportPage() {
   const [exams, setExams] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
@@ -11,7 +21,7 @@ export default function ReportPage() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token) { window.location.href = "/"; return; }
     axios.get("/api/exam/my", { headers: { Authorization: `Bearer ${token}` } }).then(r => {
       setExams(r.data);
       if (r.data.length > 0) loadDetail(r.data[0].id);
@@ -68,7 +78,7 @@ export default function ReportPage() {
                           {q.image_url && !imageFailed[imgKey] ? (
                             <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(imgKey)} />
                           ) : q.image_svg ? (
-                            <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />
+                            <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: sanitizeSvg(q.image_svg) }} />
                           ) : null}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mt-2">
                             <div className="p-2 bg-gray-50 rounded"><span className="text-gray-500 block mb-1">你的答案</span><span className={isCorrect ? "" : "text-red-600"}>{stuAns}</span></div>

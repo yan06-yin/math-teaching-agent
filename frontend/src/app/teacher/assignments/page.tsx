@@ -17,6 +17,7 @@ export default function TeacherAssignments() {
   const headers = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") : ""}` });
 
   useEffect(() => {
+    if (!localStorage.getItem("token")) { window.location.href = "/"; return; }
     if (!loaded && !loading) {
       loadAssignments();
       loadClasses();

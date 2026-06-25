@@ -241,7 +241,7 @@ class OpenModelService:
         return {"raw": text}
 
     async def grade_homework_with_image(self, student_name: str, school_level: str,
-                                         image_base64: str) -> dict:
+                                         image_base64: str, extra_context: str = "") -> dict:
         """用图片直接批改作业 — 强制使用多模态模型（Agnes AI），即使当前活跃的是 DeepSeek"""
         # 多模态批改强制走 Agnes Flash（始终支持图片）
         json_example = json.dumps({
@@ -255,11 +255,13 @@ class OpenModelService:
             ]
         }, ensure_ascii=False)
 
+        extra_section = f"\n\n补充信息：\n{extra_context}" if extra_context else ""
+
         prompt = f"""你是一位经验丰富的数学老师，请识别图片中的数学题目并进行批改。
 
 学生信息：
 - 姓名：{student_name}
-- 学段：{school_level}
+- 学段：{school_level}{extra_section}
 
 请先读取图片中的所有数学题目，然后逐题批改。
 

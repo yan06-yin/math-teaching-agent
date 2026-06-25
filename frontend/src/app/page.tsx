@@ -3,8 +3,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 
-const API_BASE = typeof window !== "undefined" ? (localStorage.getItem("apiBase") || "/api") : "/api";
-
 export default function LoginPage() {
   const router = useRouter();
   const [userType, setUserType] = useState<"student" | "teacher" | "admin">("student");
@@ -124,8 +122,8 @@ export default function LoginPage() {
             ) : userType === "student" ? (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">姓名</label>
-                  <input type="text" className="input" placeholder="请输入姓名" value={name} onChange={e => setName(e.target.value)} required />
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">姓名 {mode === "login" && <span className="text-gray-400 font-normal">（选填）</span>}</label>
+                  <input type="text" className="input" placeholder={mode === "login" ? "选填，用于核对身份" : "请输入姓名"} value={name} onChange={e => setName(e.target.value)} required={mode === "register"} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">学号</label>

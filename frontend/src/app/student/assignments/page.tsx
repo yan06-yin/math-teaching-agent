@@ -14,6 +14,7 @@ export default function StudentAssignments() {
   const [answers, setAnswers] = useState<string[]>([]);
 
   useEffect(() => {
+    if (!localStorage.getItem("token")) { window.location.href = "/"; return; }
     if (!loaded && !loading) {
       load();
     }

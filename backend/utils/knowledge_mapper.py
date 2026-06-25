@@ -131,4 +131,6 @@ def get_knowledge_info(point: str, level: str = "初中") -> dict:
 
     if isinstance(info, list):
         return {"name": point, "tags": info, "description": ""}
+    if info is None:
+        return {"name": point, "tags": [], "description": ""}
     return {"name": point, "tags": info[1] if info else [], "description": info[2] if len(info) > 2 else ""}

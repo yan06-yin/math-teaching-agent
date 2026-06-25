@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 
 from database import init_db
-from routers import auth, homework, exam, analysis, teacher, assignments, classes, admin
+from routers import auth, homework, exam, analysis, teacher, assignments, classes, admin, teacher_homework_photo
 from seed_admin import seed_admin
 
 
@@ -88,6 +88,7 @@ app.include_router(teacher.router, prefix="/api/teacher", tags=["教师端"])
 app.include_router(assignments.router, prefix="/api", tags=["作业发布"])
 app.include_router(classes.router, prefix="/api/classes", tags=["班级管理"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
+app.include_router(teacher_homework_photo.router, prefix="/api/teacher", tags=["教师拍照批改"])
 
 
 @app.get("/api/health")

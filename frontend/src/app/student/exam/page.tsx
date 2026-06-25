@@ -3,6 +3,16 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 
+/** 渲染前清理 SVG — 移除 script、事件处理器等危险元素 */
+function sanitizeSvg(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/on\w+="[^"]*"/gi, "")
+    .replace(/on\w+='[^']*'/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 export default function ExamPage() {
   const [config, setConfig] = useState({ knowledgePoints: "", difficulty: 3, questionCount: 5, withImages: false });
   const [questions, setQuestions] = useState<any[]>([]);
@@ -26,7 +36,7 @@ export default function ExamPage() {
 
   // 加载时拉取历史考试记录 & 检查 URL 参数
   useEffect(() => {
-    if (!token) return;
+    if (!token) { window.location.href = "/"; return; }
     axios.get("/api/exam/my", { headers }).then(r => setPastExams(r.data)).catch(() => {});
   }, []);
 
@@ -194,7 +204,7 @@ export default function ExamPage() {
                     {q.image_url && !imageFailed[i] ? (
                       <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
                     ) : q.image_svg ? (
-                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />
+                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: sanitizeSvg(q.image_svg) }} />
                     ) : null}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
@@ -226,7 +236,7 @@ export default function ExamPage() {
                     {q.image_url && !imageFailed[i] ? (
                       <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
                     ) : q.image_svg ? (
-                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: q.image_svg }} />
+                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: sanitizeSvg(q.image_svg) }} />
                     ) : null}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>

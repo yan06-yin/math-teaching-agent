@@ -90,7 +90,7 @@ async def get_student_profile(
     weak_points = [e.knowledge_point for e in errors[:5]] if errors else []
     strong_points = [e.knowledge_point for e in errors[-5:][::-1]] if len(errors) > 5 else []
 
-    # 趋势判断
+    # 趋势判断：比较前半段 vs 后半段，至少 2 条记录才判断
     scores = (await db.execute(
         select(HomeworkSubmission.score).filter(
             HomeworkSubmission.student_id == student_id,
@@ -99,12 +99,15 @@ async def get_student_profile(
         ).order_by(HomeworkSubmission.created_at)
     )).scalars().all()
 
-    if len(scores) >= 3:
-        recent = scores[-3:]
-        older = scores[:3]
-        if sum(recent) / len(recent) > sum(older) / len(older) * 1.05:
+    if len(scores) >= 2:
+        mid = len(scores) // 2
+        older = scores[:mid] if mid > 0 else scores[:1]
+        recent = scores[mid:]
+        recent_avg = sum(recent) / len(recent)
+        older_avg = sum(older) / len(older)
+        if recent_avg > older_avg * 1.05:
             trend = "rising"
-        elif sum(recent) / len(recent) < sum(older) / len(older) * 0.95:
+        elif recent_avg < older_avg * 0.95:
             trend = "falling"
         else:
             trend = "stable"

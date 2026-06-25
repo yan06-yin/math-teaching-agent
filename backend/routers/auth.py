@@ -154,18 +154,17 @@ async def _finish_register(db: AsyncSession, student: Student, invite_code: str 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: StudentLogin, db: AsyncSession = Depends(get_db)):
-    """学生登录（姓名+学号+密码）"""
+    """学生登录（学号+密码）"""
     try:
         student = (await db.execute(
             select(Student).filter(
                 Student.student_id == body.student_id,
-                Student.name == body.name,
                 Student.is_deleted == False,
             )
         )).scalar_one_or_none()
 
         if not student:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号或姓名不正确")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号不存在")
 
         if not student.password_hash:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="请先设置密码后登录")
@@ -192,13 +191,12 @@ async def reset_student_password(body: StudentResetPassword, db: AsyncSession = 
     student = (await db.execute(
         select(Student).filter(
             Student.student_id == body.student_id,
-            Student.name == body.name,
             Student.is_deleted == False,
         )
     )).scalar_one_or_none()
 
     if not student:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号或姓名不正确")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="学号不存在")
 
     if not student.password_hash:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该账号尚未设置密码，请使用注册流程")

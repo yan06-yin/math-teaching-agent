@@ -9,7 +9,7 @@ export default function PlanPage() {
 
   useEffect(() => {
     const t = localStorage.getItem("token");
-    if (!t) return;
+    if (!t) { window.location.href = "/"; return; }
     axios.get("/api/exam/my", { headers: { Authorization: `Bearer ${t}` } }).then(async r => {
       if (r.data.length > 0) {
         const d = await axios.get(`/api/exam/${r.data[0].id}/report`, { headers: { Authorization: `Bearer ${t}` } });

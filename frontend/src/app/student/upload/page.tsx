@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -11,6 +11,10 @@ export default function UploadPage() {
   const [result, setResult] = useState<any>(null);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (!localStorage.getItem("token")) { window.location.href = "/"; }
+  }, []);
 
   const handleSubmit = async () => {
     if (!file && !manualInput.trim()) return;

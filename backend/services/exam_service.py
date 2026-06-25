@@ -1,6 +1,7 @@
 """出题服务 — 智能出题、组卷、诊断报告生成（异步 SQLAlchemy）"""
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +67,8 @@ async def generate_and_save_exam(db: AsyncSession, student_id: int, config: dict
 async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[ExamAttempt, list]:
     """批改考试"""
     exam = await db.get(ExamAttempt, exam_id)
+    if not exam:
+        raise ValueError(f"考试记录不存在: exam_id={exam_id}")
     exam.student_answers = answers
     await db.commit()
 
@@ -147,7 +150,3 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
     except Exception as e:
         logger.error(f"考试批改失败: {e}")
         raise
-
-
-# 需要 datetime
-from datetime import datetime, timezone

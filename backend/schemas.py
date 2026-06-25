@@ -17,7 +17,7 @@ class StudentRegister(BaseModel):
 
 class StudentLogin(BaseModel):
     student_id: str
-    name: str
+    name: str = ""  # 可选，向后兼容
     password: str
 
 
@@ -28,7 +28,7 @@ class StudentSetPassword(BaseModel):
 class StudentResetPassword(BaseModel):
     """学生重置密码（需提供旧密码验证身份）"""
     student_id: str
-    name: str
+    name: str = ""  # 可选，向后兼容
     old_password: str
     new_password: str = Field(..., min_length=6, max_length=128)
 
