@@ -9,10 +9,12 @@ export default function TeacherAssignments() {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [questions, setQuestions] = useState<string[]>([""]);
-  const [classId, setClassId] = useState<number | 0>(0);
+  const [classId, setClassId] = useState<number>(0);
   const [classList, setClassList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const headers = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") : ""}` });
 
@@ -45,19 +47,28 @@ export default function TeacherAssignments() {
   const updateQ = (i: number, v: string) => {
     const q = [...questions]; q[i] = v; setQuestions(q);
   };
+
   const createAssignment = async () => {
     setLoading(true);
-    await axios.post("/api/assignments/teacher", {
-      title,
-      description: desc,
-      class_id: classId || null,
-      questions: questions.filter(q => q.trim()).map((q, i) => ({
-        id: i + 1, question: q, answer: ""
-      }))
-    }, { headers: headers() });
-    setTitle(""); setDesc(""); setQuestions([""]); setClassId(0);
-    setMode("list");
-    loadAssignments();
+    try {
+      const fd = new FormData();
+      fd.append("title", title);
+      fd.append("description", desc);
+      if (classId) fd.append("class_id", String(classId));
+      const qs = questions.filter(q => q.trim()).map((q, i) => ({ id: i + 1, question: q, answer: "" }));
+      fd.append("questions", JSON.stringify(qs));
+      if (photoFile) fd.append("photo", photoFile);
+
+      await axios.post("/api/assignments/teacher", fd, {
+        headers: { ...headers(), "Content-Type": "multipart/form-data" },
+      });
+      setTitle(""); setDesc(""); setQuestions([""]); setClassId(0);
+      setPhotoFile(null); setPhotoPreview(null);
+      setMode("list");
+      loadAssignments();
+    } catch (e: any) {
+      alert("发布失败：" + (e.response?.data?.detail || e.message));
+    }
     setLoading(false);
   };
 
@@ -81,11 +92,20 @@ export default function TeacherAssignments() {
               {assignments.map((a: any) => (
                 <div key={a.id} className="card">
                   <div className="flex items-center justify-between">
-                    <div className="font-semibold text-lg">{a.title}</div>
+                    <div className="flex items-center gap-3">
+                      {a.photo_url ? <span className="text-2xl">📷</span> : <span className="text-2xl">📝</span>}
+                      <div>
+                        <div className="font-semibold text-lg">{a.title}</div>
+                        <div className="text-sm text-gray-500 mt-0.5">{a.description}</div>
+                      </div>
+                    </div>
                     <span className="badge badge-gray">{a.class_name || "📢 广播"}</span>
                   </div>
-                  <div className="text-sm text-gray-500 mt-1">{a.description}</div>
-                  <div className="text-xs text-gray-400 mt-2">{a.questions_count} 道题 · {a.submissions} 人已提交</div>
+                  <div className="text-xs text-gray-400 mt-2">
+                    {a.photo_url && "📷 拍照作业 · "}
+                    {a.questions_count > 0 && `${a.questions_count} 道题 · `}
+                    {a.submissions} 人已提交
+                  </div>
                 </div>
               ))}
               {assignments.length === 0 && <div className="empty-state"><div className="icon">📋</div><div className="text">暂无作业</div></div>}
@@ -97,7 +117,7 @@ export default function TeacherAssignments() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1.5">作业标题</label>
-                <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="单元测试一" />
+                <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="例：第三章课后练习" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1.5">描述</label>
@@ -112,8 +132,28 @@ export default function TeacherAssignments() {
                   ))}
                 </select>
               </div>
+
+              {/* 拍照上传 */}
+              <div className="border-2 border-dashed rounded-xl p-6 text-center border-gray-200 bg-gray-50">
+                <div className="text-3xl mb-2">📷</div>
+                <p className="text-gray-500 text-sm mb-2">拍照布置作业（选填）</p>
+                <p className="text-gray-400 text-xs mb-3">学生将直接看到这张照片，然后在线提交答案</p>
+                <input type="file" accept="image/*" capture="environment" onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
+                }} className="block mx-auto text-sm" />
+                {photoPreview && (
+                  <div className="mt-3 relative inline-block">
+                    <img src={photoPreview} alt="preview" className="max-h-48 mx-auto rounded-lg shadow" />
+                    <button onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center">✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* 文字题目 */}
               <div>
-                <label className="block text-sm font-medium mb-1.5">题目</label>
+                <label className="block text-sm font-medium mb-1.5">在线题目（选填，和照片可同时使用）</label>
                 {questions.map((q, i) => (
                   <div key={i} className="flex gap-2 mb-2">
                     <span className="mt-2.5 text-sm font-medium w-6">{i+1}.</span>
@@ -122,6 +162,7 @@ export default function TeacherAssignments() {
                 ))}
                 <button onClick={addQuestion} className="text-sm text-indigo-600 mt-1 font-medium">+ 添加题目</button>
               </div>
+
               <button onClick={createAssignment} disabled={loading || !title.trim()}
                 className="btn-primary w-full mt-4">
                 {loading ? "发布中..." : "📢 发布作业"}

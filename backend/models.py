@@ -160,6 +160,7 @@ class Assignment(Base):
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)  # NULL=广播
     title = Column(String(200), nullable=False)
     description = Column(Text, default="")
+    photo_url = Column(String(512), nullable=True)  # 拍照作业的照片
     questions_json = Column(JSON, default=list)
     due_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
@@ -237,28 +238,6 @@ class GradingTask(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
-
-class HomeworkPhoto(Base):
-    """教师拍照上传的作业"""
-    __tablename__ = "homework_photos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False, index=True)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)
-    title = Column(String(200), nullable=False, default="拍照批改")
-    photo_url = Column(String(512), nullable=False)
-    score = Column(Float, default=0)
-    correct_count = Column(Integer, default=0)
-    total_count = Column(Integer, default=0)
-    comments = Column(Text, default="")
-    wrong_questions_json = Column(JSON, default=list)
-    status = Column(String(20), default="pending")  # pending / grading / done / error
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-
-    teacher = relationship("Teacher")
-    class_ = relationship("Class")
 
 
 class AIProvider(Base):

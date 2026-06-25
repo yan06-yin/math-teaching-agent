@@ -6,7 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useToast } from "@/app/toast";
 import { TableSkeleton, CardSkeleton } from "@/app/skeleton";
 
-type Tab = "overview" | "errors" | "students" | "student" | "kp" | "classes" | "photo";
+type Tab = "overview" | "errors" | "students" | "student" | "kp" | "classes";
 
 export default function TeacherDashboard() {
   const { toast } = useToast();
@@ -27,16 +27,6 @@ export default function TeacherDashboard() {
   const [newClassLevel, setNewClassLevel] = useState("初中");
   const [addStudentId, setAddStudentId] = useState("");
   const [inviteCodes, setInviteCodes] = useState<any[]>([]);
-
-  // 拍照批改状态
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoTitle, setPhotoTitle] = useState("");
-  const [photoClassId, setPhotoClassId] = useState<number>(0);
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [photoStatusMsg, setPhotoStatusMsg] = useState("");
-  const [photoResult, setPhotoResult] = useState<any>(null);
-  const [photoHistory, setPhotoHistory] = useState<any[]>([]);
 
   const headers = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}` });
 
@@ -121,69 +111,6 @@ export default function TeacherDashboard() {
   };
   const openClassTab = () => { setTab("classes"); loadClasses(); };
 
-  // 拍照批改
-  const openPhotoTab = async () => {
-    setTab("photo");
-    setPhotoResult(null);
-    loadClasses();
-    try {
-      const r = await axios.get("/api/teacher/homework-photo/list", { headers: headers() });
-      setPhotoHistory(r.data);
-    } catch {}
-  };
-
-  const handlePhotoUpload = async () => {
-    if (!photoFile) return;
-    setPhotoUploading(true);
-    setPhotoStatusMsg("上传中...");
-    setPhotoResult(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", photoFile);
-      fd.append("title", photoTitle || "拍照批改");
-      if (photoClassId) fd.append("class_id", String(photoClassId));
-
-      const res = await axios.post("/api/teacher/homework-photo/upload", fd, { headers: { ...headers(), "Content-Type": "multipart/form-data" } });
-      const pid = res.data.id;
-      setPhotoStatusMsg("AI 正在批改中，请稍候...");
-
-      let attempts = 0;
-      while (attempts < 60) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        attempts++;
-        const elapsed = attempts * 3;
-        if (elapsed < 30) setPhotoStatusMsg(`⏳ AI 批改中... ${elapsed}s`);
-        else if (elapsed < 60) setPhotoStatusMsg(`⏳ 识别题目中... ${elapsed}s`);
-        else setPhotoStatusMsg(`⏳ 还在批改... ${elapsed}s`);
-
-        const statusRes = await axios.get(`/api/teacher/homework-photo/${pid}/status`, { headers: headers() });
-        if (statusRes.data.status === "done") {
-          setPhotoResult(statusRes.data.result);
-          setPhotoStatusMsg("");
-          setPhotoFile(null); setPhotoPreview(null);
-          // 刷新历史
-          const r = await axios.get("/api/teacher/homework-photo/list", { headers: headers() });
-          setPhotoHistory(r.data);
-          setPhotoUploading(false);
-          return;
-        }
-        if (statusRes.data.status === "error") {
-          throw new Error(statusRes.data.error || "批改失败");
-        }
-      }
-      throw new Error("批改超时（3 分钟），请稍后在历史记录中查看");
-    } catch (e: any) {
-      toast("上传失败：" + (e.response?.data?.detail || e.message), "error");
-    } finally { setPhotoUploading(false); setPhotoStatusMsg(""); }
-  };
-
-  const viewPhotoResult = async (id: number) => {
-    try {
-      const r = await axios.get(`/api/teacher/homework-photo/${id}/result`, { headers: headers() });
-      setPhotoResult(r.data);
-    } catch (e: any) { toast("加载失败", "error"); }
-  };
-
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner spinner-lg"></div></div>;
 
   const TABS: { key: Tab; label: string }[] = [
@@ -191,7 +118,6 @@ export default function TeacherDashboard() {
     { key: "errors", label: "❌ 错题汇总" },
     { key: "students", label: "👥 学生列表" },
     { key: "classes", label: "🏫 班级管理" },
-    { key: "photo", label: "📷 拍照批改" },
   ];
 
   return (
@@ -217,7 +143,7 @@ export default function TeacherDashboard() {
       <div className="max-w-7xl mx-auto px-6">
         <div className="tabs">
           {TABS.map(t => (
-            <button key={t.key} onClick={t.key === "classes" ? openClassTab : t.key === "photo" ? openPhotoTab : () => setTab(t.key)}
+            <button key={t.key} onClick={t.key === "classes" ? openClassTab : () => setTab(t.key)}
               className={`tab ${tab === t.key ? "active" : ""}`}>{t.label}</button>
           ))}
           {tab === "student" && <span className="tab active">👤 {selStudent?.name}</span>}
@@ -455,101 +381,6 @@ export default function TeacherDashboard() {
               </div>
             )}
           </>
-        )}
-
-        {/* 拍照批改 */}
-        {tab === "photo" && (
-          <div>
-            {!photoResult ? (
-              <>
-                <div className="card mb-6">
-                  <h3 className="font-semibold mb-4">📷 上传作业照片</h3>
-                  <div className="border-2 border-dashed rounded-xl p-10 text-center border-gray-200">
-                    <div className="text-4xl mb-3">📷</div>
-                    <p className="text-gray-500 mb-2">支持 JPG、PNG 格式，拍摄学生作业</p>
-                    <input type="file" accept="image/*" capture="environment" onChange={e => {
-                      const f = e.target.files?.[0];
-                      if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
-                    }} className="block mx-auto" />
-                    {photoPreview && <img src={photoPreview} alt="preview" className="max-h-64 mx-auto mt-4 rounded-lg shadow" />}
-                  </div>
-                </div>
-                <div className="card mb-6 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">作业标题</label>
-                    <input className="input" placeholder="例：第三章课后练习" value={photoTitle} onChange={e => setPhotoTitle(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">关联班级 <span className="text-gray-400 font-normal">（选填，可自动记录错题到学生）</span></label>
-                    <select className="input" value={photoClassId} onChange={e => setPhotoClassId(Number(e.target.value))}>
-                      <option value={0}>不关联班级</option>
-                      {classList.map((c: any) => (
-                        <option key={c.id} value={c.id}>🏫 {c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <button onClick={handlePhotoUpload} disabled={!photoFile || photoUploading} className="btn-primary w-full text-lg py-3">
-                  {photoUploading ? (photoStatusMsg || "AI 批改中...") : "🤖 开始批改"}
-                </button>
-                {photoUploading && (
-                  <div className="mt-4">
-                    <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-indigo-500 h-2 rounded-full animate-pulse" style={{ width: "60%" }} /></div>
-                    <p className="text-gray-400 text-sm mt-2 text-center">请勿关闭页面</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="space-y-6">
-                <button onClick={() => setPhotoResult(null)} className="text-indigo-600 text-sm font-medium">← 继续上传</button>
-                <div className="card">
-                  <h3 className="font-semibold text-lg mb-4">📊 批改结果</h3>
-                  <div className="text-4xl font-bold text-center text-indigo-600 mb-4">{photoResult.score}分</div>
-                  {photoResult.total_count > 0 && <p className="text-center text-sm text-gray-500 mb-2">正确 {photoResult.correct_count}/{photoResult.total_count} 题</p>}
-                  {photoResult.comments && <div className="p-4 bg-indigo-50 rounded-lg mb-4"><p className="text-indigo-800">{photoResult.comments}</p></div>}
-                </div>
-                {photoResult.wrong_questions?.filter((q: any) => !q.correct).map((q: any, i: number) => (
-                  <div key={i} className="card p-4 bg-red-50">
-                    <div className="font-medium mb-1">{q.question}</div>
-                    {q.student_answer && <div className="text-sm text-red-600">学生答案：{q.student_answer}</div>}
-                    {q.correct_answer && <div className="text-sm text-green-600">正确答案：{q.correct_answer}</div>}
-                    {q.explanation && <div className="text-sm text-gray-700 mt-2">💡 {q.explanation}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 历史记录 */}
-            <div className="mt-8">
-              <h3 className="font-semibold mb-4">📋 批改历史</h3>
-              {photoHistory.length > 0 ? (
-                <div className="space-y-3">
-                  {photoHistory.map((p: any) => (
-                    <div key={p.id} className="card flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow" onClick={() => viewPhotoResult(p.id)}>
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">📷</span>
-                        <div>
-                          <div className="font-medium">{p.title}</div>
-                          <div className="text-xs text-gray-400">{p.class_name || "未关联班级"} · {new Date(p.created_at).toLocaleDateString("zh-CN")}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {p.status === "done" ? (
-                          <span className="text-lg font-bold text-indigo-600">{p.score}分</span>
-                        ) : p.status === "error" ? (
-                          <span className="badge badge-danger">失败</span>
-                        ) : (
-                          <span className="badge badge-warning">批改中</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state"><div className="icon">📷</div><div className="text">暂无批改记录，上传第一张作业照片吧</div></div>
-              )}
-            </div>
-          </div>
         )}
       </main>
     </div>
