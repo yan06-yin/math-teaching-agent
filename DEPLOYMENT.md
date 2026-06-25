@@ -1,204 +1,225 @@
-# 🚀 部署指南
+# 🚀 一键部署指南
 
-> 本项目支持多种免费部署方式，5 分钟即可上线。
+## 架构说明
 
----
+本项目采用**单容器架构**，一个部署包含所有组件：
 
-## 方案一：Railway（推荐 ⭐）
-
-**免费额度**：$5/月信用额度，足够小型项目运行
-
-### 一键部署
-
-1. Fork 本仓库到你的 GitHub
-2. 访问 [Railway](https://railway.app) 并用 GitHub 登录
-3. 点击 **New Project → Deploy from GitHub repo**
-4. 选择你 fork 的仓库
-5. Railway 会自动检测 `Dockerfile` 并构建
-
-### 配置环境变量
-
-在 Railway 项目的 **Variables** 页面添加：
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `AGNES_API_KEY` | ✅ | AI API Key，从 [apihub.agnes-ai.com](https://apihub.agnes-ai.com) 注册获取 |
-| `AGNES_BASE_URL` | | 默认 `https://apihub.agnes-ai.com/v1` |
-| `AGNES_MODEL` | | 默认 `agnes-2.0-flash` |
-| `SECRET_KEY` | | JWT 密钥，留空自动生成（生产建议设置固定值） |
-| `DATABASE_URL` | | 留空默认 SQLite；如需 PostgreSQL 见下方 |
-
-### 配置域名
-
-1. 在 Railway 项目 → **Settings** → **Networking**
-2. 点击 **Generate Domain** 获得免费的 `*.up.railway.app` 域名
-3. 也可绑定自定义域名
-
-### 数据持久化
-
-SQLite 数据库存储在容器内，重新部署会丢失数据。建议：
-
-**方案 A**：添加 Railway Volume（免费 1GB）
-1. 项目 → **Settings** → **Volumes** → **New Volume**
-2. Mount Path: `/app/database`
-
-**方案 B**：使用免费 PostgreSQL
-1. 在 Railway 项目中 **New → Database → PostgreSQL**
-2. 复制连接字符串，设为 `DATABASE_URL` 环境变量
-
----
-
-## 方案二：Render（免费）
-
-**免费额度**：750 小时/月，有冷启动（首次访问需等 30 秒）
-
-### 部署步骤
-
-1. Fork 本仓库
-2. 访问 [render.com](https://render.com) 并用 GitHub 登录
-3. **New → Web Service** → 选择你的仓库
-4. 配置：
-   - **Environment**: Docker
-   - **Plan**: Free
-   - **Environment Variables**: 同上表
-5. 点击 **Create Web Service**
-
-> ⚠️ Render 免费版 15 分钟无请求后会休眠，首次访问需等 30 秒冷启动。
-
----
-
-## 方案三：Fly.io（免费）
-
-**免费额度**：3 个共享 CPU VM + 3GB 持久存储
-
-```bash
-# 安装 flyctl
-curl -L https://fly.io/install.sh | sh
-
-# 登录
-fly auth login
-
-# 初始化（会自动检测 Dockerfile）
-fly launch
-
-# 设置环境变量
-fly secrets set AGNES_API_KEY=your_key_here
-
-# 部署
-fly deploy
+```
+┌──────────────────────────────────────────┐
+│              Railway / Docker             │
+│                                          │
+│  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│  │  前端     │  │  后端     │  │ 数据库  │ │
+│  │ Next.js  │→ │ FastAPI  │→ │ SQLite │ │
+│  │ 静态页面  │  │ Python   │  │  文件   │ │
+│  └──────────┘  └──────────┘  └────────┘ │
+│       ↑              ↑            ↑      │
+│       │              │            │      │
+│   浏览器访问     AI API调用    自动创建   │
+│                                          │
+│  端口：一个端口对外，同时提供页面和 API    │
+└──────────────────────────────────────────┘
 ```
 
----
-
-## 方案四：Docker 自部署
-
-适用于有自己的服务器（VPS、NAS、校园服务器等）
-
-```bash
-# 克隆仓库
-git clone https://github.com/yan06-yin/math-teaching-agent.git
-cd math-teaching-agent
-
-# 创建 .env 文件
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，填入 AGNES_API_KEY
-
-# Docker 构建 + 运行
-docker build -t math-agent .
-docker run -d \
-  --name math-agent \
-  -p 8080:8000 \
-  -v math-agent-data:/app/database \
-  -v math-agent-uploads:/app/uploads \
-  --env-file backend/.env \
-  math-agent
-
-# 访问 http://localhost:8080
-```
-
-### docker-compose（更简单）
-
-```yaml
-version: "3.8"
-services:
-  app:
-    build: .
-    ports:
-      - "8080:8000"
-    volumes:
-      - app-data:/app/database
-      - app-uploads:/app/uploads
-    env_file:
-      - backend/.env
-    restart: unless-stopped
-
-volumes:
-  app-data:
-  app-uploads:
-```
-
-```bash
-docker-compose up -d
-```
+**部署一个容器 = 前端 + 后端 + 数据库全部就绪**
 
 ---
 
-## 方案五：本地直接运行（开发/演示）
+## 方案一：Railway 部署（推荐）
 
-不需要 Docker，直接用 Python 运行：
+### 前置准备
 
-```bash
-# 安装依赖
-pip install -r requirements.txt
+1. GitHub 账号（免费注册：https://github.com）
+2. Railway 账号（用 GitHub 登录：https://railway.app）
+3. Agnes AI API Key（免费注册：https://apihub.agnes-ai.com）
 
-# 配置环境变量
-cp backend/.env.example backend/.env
-# 编辑 backend/.env
+### 部署步骤（共 5 步，约 5 分钟）
 
-# 构建前端
-cd frontend && npm install && npm run build && cp -r out ../backend/frontend && cd ..
+#### 第 1 步：Fork 代码仓库
 
-# 启动
-cd backend && python main.py
+打开 https://github.com/yan06-yin/math-teaching-agent
 
-# 访问 http://localhost:8080
-```
+点击右上角 **Fork** 按钮 → 选择你的账号 → 点击 **Create fork**
 
----
+> Fork = 把代码复制到你自己的 GitHub 账号下
 
-## 免费 AI API 获取
+#### 第 2 步：创建 Railway 项目
 
-本项目使用 [Agnes AI](https://apihub.agnes-ai.com) 提供的免费 API：
+1. 打开 https://railway.app
+2. 点击 **Login** → 选择 **Login with GitHub**
+3. 点击 **New Project** → **Deploy from GitHub Repo**
+4. 在列表中选择你刚 Fork 的仓库 `你的用户名/math-teaching-agent`
+5. Railway 会自动开始构建（检测到 Dockerfile）
 
-1. 访问 https://apihub.agnes-ai.com
-2. 注册账号（支持 GitHub 登录）
-3. 进入 **API Keys** 页面，生成一个 Key
-4. 将 Key 填入环境变量 `AGNES_API_KEY`
+> Railway = 云服务器平台，免费提供服务器帮你跑代码
 
-> 也支持 DeepSeek、OpenAI 等其他 OpenAI 兼容 API，在管理后台 → AI 模型中切换。
+#### 第 3 步：添加环境变量
 
----
+构建开始后，点击项目进入详情页：
 
-## 默认账号
+1. 点击顶部的 **Variables** 标签
+2. 点击 **New Variable**
+3. 添加以下变量：
+
+| Variable（变量名） | Value（值） | 说明 |
+|-------------------|------------|------|
+| `AGNES_API_KEY` | 你的 API Key | **必填**，AI 批改功能需要 |
+
+> 环境变量 = 给程序传配置的方式，类似软件的注册码
+
+#### 第 4 步：获取访问域名
+
+1. 点击顶部的 **Settings** 标签
+2. 找到 **Networking** 部分
+3. 点击 **Generate Domain**
+4. 获得一个免费域名，类似：`math-agent-production-xxxx.up.railway.app`
+
+> 域名 = 你系统的访问地址，别人打开这个网址就能用
+
+#### 第 5 步：完成！
+
+打开域名，使用默认管理员账号登录：
 
 | 角色 | 账号 | 密码 |
 |------|------|------|
-| 管理员 | admin | admin123 |
+| 管理员 | `admin` | `admin123` |
 
-> ⚠️ 首次部署后请立即在管理后台修改密码！
+登录后建议：
+1. 在 **AI 模型** 页面确认 API Key 配置正确
+2. 修改管理员密码
+3. 注册教师账号，创建班级
+4. 学生通过邀请码注册加入
+
+---
+
+## 方案二：Docker 自部署
+
+适用于有自己的服务器（VPS、NAS、校园服务器等）。
+
+### 一行命令启动
+
+```bash
+# 克隆代码
+git clone https://github.com/yan06-yin/math-teaching-agent.git
+cd math-teaching-agent
+
+# 创建配置文件
+cp backend/.env.example backend/.env
+# 用编辑器打开 backend/.env，填入 AGNES_API_KEY=你的key
+
+# 一键启动（自动构建 + 启动）
+docker-compose up -d
+```
+
+启动后访问 **http://你的服务器IP:8080**
+
+### docker-compose.yml 说明
+
+```yaml
+services:
+  app:                          # 一个服务包含所有组件
+    build: .                    # 根据 Dockerfile 构建
+    ports:
+      - "8080:8000"             # 对外端口 8080
+    volumes:
+      - app-data:/app/database  # 数据库持久化（重启不丢数据）
+      - app-uploads:/app/uploads # 上传的图片持久化
+    env_file:
+      - backend/.env            # 读取配置文件
+```
+
+### 常用命令
+
+```bash
+docker-compose up -d      # 启动（后台运行）
+docker-compose down        # 停止
+docker-compose logs -f     # 查看日志
+docker-compose restart     # 重启
+```
+
+---
+
+## 方案三：本地开发运行
+
+不需要 Docker，直接用 Python 运行（适合开发调试或课堂演示）。
+
+```bash
+# 1. 克隆代码
+git clone https://github.com/yan06-yin/math-teaching-agent.git
+cd math-teaching-agent
+
+# 2. 安装后端依赖
+pip install -r requirements.txt
+
+# 3. 配置环境变量
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填入 AGNES_API_KEY
+
+# 4. 构建前端（需要 Node.js）
+cd frontend
+npm install
+npm run build
+cp -r out ../backend/frontend
+cd ..
+
+# 5. 启动
+cd backend
+python main.py
+```
+
+启动后访问 **http://localhost:8080**
+
+---
+
+## 获取免费 AI API Key
+
+本项目的 AI 批改、出题功能需要调用 AI 服务。
+
+### Agnes AI（推荐，免费）
+
+1. 打开 https://apihub.agnes-ai.com
+2. 点击 **Sign Up** 注册（支持 GitHub 登录）
+3. 登录后进入 **API Keys** 页面
+4. 点击 **Create API Key**，复制生成的 Key
+5. 将 Key 填入环境变量 `AGNES_API_KEY`
+
+> 也可以在系统管理后台 → AI 模型中切换为 DeepSeek、GPT 等其他模型。
+
+---
+
+## 数据持久化说明
+
+| 组件 | 存储方式 | 重启是否丢失 |
+|------|---------|-------------|
+| 数据库 | SQLite 文件 `/app/database/` | ⚠️ 容器重建会丢失 |
+| 上传的图片 | `/app/uploads/` | ⚠️ 容器重建会丢失 |
+| 代码 | Docker 镜像内 | 不丢失 |
+
+### 防止数据丢失
+
+**Railway 用户**：添加 Volume
+1. 项目 → Settings → Volumes → New Volume
+2. Mount Path: `/app/database`
+
+**Docker 用户**：docker-compose.yml 已配置 volume，数据自动持久化。
+
+**进阶**：使用 PostgreSQL（Railway 一键添加 Database 服务）。
 
 ---
 
 ## 常见问题
 
-### Q: 部署后页面空白？
-A: 确认 Dockerfile 中前端构建成功。检查 `backend/frontend/` 目录是否存在 `index.html`。
+### Q: 部署要花钱吗？
+A: 不花钱。Railway 免费 $5/月额度，够小型项目用。Agnes AI API 免费注册。
 
-### Q: AI 批改报错？
-A: 检查 `AGNES_API_KEY` 是否正确设置。在管理后台 → AI 模型中可以测试连接。
+### Q: 前端和后端是分开部署的吗？
+A: 不是。前端打包成静态文件，由后端一起提供服务。只需部署一个容器。
 
-### Q: 数据会丢失吗？
-A: 使用 SQLite 时，如果没挂载 Volume，重新部署会丢失数据。建议使用 PostgreSQL 或挂载 Volume。
+### Q: 数据库需要单独安装吗？
+A: 不需要。默认用 SQLite（一个文件），自动创建。如需更强性能可加 PostgreSQL。
 
-### Q: 如何更新版本？
-A: Railway/Render 会自动拉取最新代码重新部署。Docker 用户执行 `docker-compose pull && docker-compose up -d`。
+### Q: 支持哪些 AI 模型？
+A: 支持所有兼容 OpenAI API 的模型：Agnes AI（默认）、DeepSeek、GPT-4、Claude 等。在管理后台切换。
+
+### Q: 怎么更新版本？
+A: Railway 用户：push 代码到 GitHub，自动重新部署。Docker 用户：`git pull && docker-compose up -d --build`。
