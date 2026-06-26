@@ -47,10 +47,11 @@ class OCRService:
         return tmp.name
 
     def extract_text(self, image_path: str) -> str:
-        """从图片中提取文字（支持本地路径和 URL）"""
+        """从图片中提取文字（支持本地路径和 URL）。
+        失败时抛 RuntimeError，让调用方区分"OCR 失败"与"识别到的文本"。"""
         self._init()
         if not self._ocr:
-            return ""
+            raise RuntimeError("OCR 服务不可用（PaddleOCR 未安装或初始化失败）")
 
         # 如果是 URL，先下载
         local_path = image_path
@@ -61,7 +62,7 @@ class OCRService:
                 cleanup = True
             except Exception as e:
                 logger.error(f"下载图片失败: {e}")
-                return f"(图片下载失败: {e})"
+                raise RuntimeError(f"图片下载失败: {e}") from e
 
         try:
             result = self._ocr.ocr(str(local_path), cls=True)
@@ -74,8 +75,8 @@ class OCRService:
                         lines.append(text)
             return "\n".join(lines)
         except Exception as e:
-            logger.error(f"OCR 识别失败: {e}")
-            return ""
+            logger.error(f"OCR 识别失败: {e}", exc_info=True)
+            raise RuntimeError(f"OCR 识别失败: {e}") from e
         finally:
             if cleanup:
                 try:

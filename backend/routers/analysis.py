@@ -88,7 +88,11 @@ async def get_student_profile(
     )).scalars().all()
 
     weak_points = [e.knowledge_point for e in errors[:5]] if errors else []
-    strong_points = [e.knowledge_point for e in errors[-5:][::-1]] if len(errors) > 5 else []
+    # 优势知识点：错题记录中错误次数较低的知识点（仅错过 1 次，说明已基本掌握）
+    # 注意：系统当前未独立记录"做对的知识点"，此处基于错题做推断：
+    #       错过且只错过一次 → 视为已掌握。按 error_count 升序取前 5。
+    #       旧实现要求 len(errors) > 5 才返回，导致大多数学生没有优势知识点（bug），已修复。
+    strong_points = [e.knowledge_point for e in errors if e.error_count <= 1][:5] if errors else []
 
     # 趋势判断：比较前半段 vs 后半段，至少 2 条记录才判断
     scores = (await db.execute(

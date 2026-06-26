@@ -1,16 +1,20 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import axios from "axios";
 
-/** 渲染前清理 SVG — 移除 script、事件处理器等危险元素 */
-function sanitizeSvg(html: string): string {
-  if (!html) return "";
-  return html
+/** 将 SVG 字符串编码为 data URI，用 <img> 渲染，避免 dangerouslySetInnerHTML 导致的 XSS。
+ *  浏览器对 <img src="data:image/svg+xml,..."> 内的脚本不执行，比直接 innerHTML 安全得多。 */
+function svgToDataUri(svg: string): string {
+  if (!svg) return "";
+  // 移除明显危险内容（防御性，img 渲染本身已阻止脚本执行）
+  const cleaned = svg
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/on\w+="[^"]*"/gi, "")
     .replace(/on\w+='[^']*'/gi, "")
     .replace(/javascript:/gi, "");
+  // encodeURIComponent 处理特殊字符，避免 base64 编码开销
+  return `data:image/svg+xml;utf8,${encodeURIComponent(cleaned)}`;
 }
 
 export default function ExamPage() {
@@ -33,22 +37,28 @@ export default function ExamPage() {
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
   const headers = { Authorization: `Bearer ${token}` };
+  // 标记组件是否仍挂载，避免轮询中在已卸载组件上 setState
+  const isMountedRef = useRef(true);
 
   // 加载时拉取历史考试记录 & 检查 URL 参数
   useEffect(() => {
     if (!token) { window.location.href = "/"; return; }
-    axios.get("/api/exam/my", { headers }).then(r => setPastExams(r.data)).catch(() => {});
+    isMountedRef.current = true;
+    axios.get("/api/exam/my", { headers }).then(r => { if (isMountedRef.current) setPastExams(r.data); }).catch(() => {});
+    return () => { isMountedRef.current = false; };
   }, []);
 
   const pollWithTimeout = async (url: string, maxSec = 300, intervalMs = 3000) => {
     const maxAttempts = Math.floor((maxSec * 1000) / intervalMs);
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, intervalMs));
+      if (!isMountedRef.current) throw new Error("component unmounted");
       const elapsed = Math.round((i * intervalMs) / 1000);
       if (elapsed < 60) setPollStatus(`⏳ 正在出题... ${elapsed}s`);
       else if (elapsed < 120) setPollStatus(`⏳ AI 运算中，请稍候... ${elapsed}s`);
       else setPollStatus(`⏳ 还在生成... ${elapsed}s（AI 运算越久题目质量越高）`);
       const res = await axios.get(url, { headers, timeout: 10000 });
+      if (!isMountedRef.current) throw new Error("component unmounted");
       if (res.data.status === "done") return res.data;
       if (res.data.status === "error") throw new Error(res.data.error || "处理失败");
     }
@@ -71,9 +81,8 @@ export default function ExamPage() {
       const qs = data.questions || [];
       setQuestions(qs);
       setAnswers(new Array(qs.length).fill(""));
+      setImageFailed({}); // 新试卷清空图片失败标记
       setStep("taking");
-      // 自动保存到 localStorage 以防页面刷新
-      localStorage.setItem("exam_draft", JSON.stringify({ examId: eid, questions: qs, answers: new Array(qs.length).fill("") }));
     } catch (e: any) {
       setErrorMsg(e.response?.data?.detail || e.message || "出题失败");
     } finally {
@@ -93,8 +102,8 @@ export default function ExamPage() {
 
       const data = await pollWithTimeout(`/api/exam/${examId}/status`, 300);
       setResult(data);
+      setImageFailed({}); // 切换到结果页清空图片失败标记
       setStep("grading");
-      localStorage.removeItem("exam_draft"); // 清除草稿
       // 刷新历史记录
       axios.get("/api/exam/my", { headers }).then(r => setPastExams(r.data)).catch(() => {});
     } catch (e: any) {
@@ -112,6 +121,7 @@ export default function ExamPage() {
       const res = await axios.get(`/api/exam/${id}/report`, { headers, timeout: 10000 });
       setExamId(id);
       setResult(res.data);
+      setImageFailed({}); // 查看历史考试时清空图片失败标记
       setStep("grading");
     } catch (e: any) {
       setErrorMsg(e.response?.data?.detail || e.message || "加载失败");
@@ -204,7 +214,7 @@ export default function ExamPage() {
                     {q.image_url && !imageFailed[i] ? (
                       <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
                     ) : q.image_svg ? (
-                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: sanitizeSvg(q.image_svg) }} />
+                      <img src={svgToDataUri(q.image_svg)} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />
                     ) : null}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
@@ -236,7 +246,7 @@ export default function ExamPage() {
                     {q.image_url && !imageFailed[i] ? (
                       <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
                     ) : q.image_svg ? (
-                      <div className="flex justify-center my-2" dangerouslySetInnerHTML={{ __html: sanitizeSvg(q.image_svg) }} />
+                      <img src={svgToDataUri(q.image_svg)} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />
                     ) : null}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>

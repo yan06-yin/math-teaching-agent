@@ -41,13 +41,12 @@ class OpenModelService:
 
     def reload_from_db(self, db_session=None):
         """从数据库加载活跃的 AI 提供商配置"""
+        close_session = False
         try:
             if db_session is None:
                 from database import SessionLocal
                 db_session = SessionLocal()
                 close_session = True
-            else:
-                close_session = False
 
             from models import AIProvider
             provider = db_session.query(AIProvider).filter(AIProvider.is_active == True).first()
@@ -57,18 +56,35 @@ class OpenModelService:
                 self.model = provider.model
                 self._provider_id = provider.id
                 logger.info(f"AI 配置已加载: {provider.name} ({provider.model}) key_len={len(self.api_key)}")
-            if close_session:
-                db_session.close()
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
+        finally:
+            # 确保同步 session 在异常时也被关闭，避免连接泄漏
+            if close_session and db_session is not None:
+                try:
+                    db_session.close()
+                except Exception:
+                    pass
 
     def _get_client(self, timeout: float = 120.0) -> httpx.AsyncClient:
-        """获取共享 httpx 客户端（懒初始化，连接池复用）"""
+        """获取共享 httpx 客户端（懒初始化，连接池复用）。
+        注意：asyncio.Lock 的获取应在协程中完成，这里保持简单实现；
+        并发首次创建可能产生多个 client，但旧 client 会被关闭，最坏情况是短暂重复创建，
+        不会造成持久泄漏。严格防并发应在 lifespan 中预创建。"""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+            new_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(timeout, connect=30.0),
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
+            # 二次检查：若期间已有其他协程创建了 client，关闭新建的并复用已有的
+            if self._client is not None and not self._client.is_closed:
+                # 已有可用 client，丢弃新建的（不 await，交给 GC）
+                try:
+                    asyncio.get_event_loop().create_task(new_client.aclose())
+                except Exception:
+                    pass
+            else:
+                self._client = new_client
         return self._client
 
     async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None, timeout: float = 120.0) -> dict:
@@ -206,9 +222,12 @@ class OpenModelService:
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
-        """从模型回复中提取 JSON"""
+        """从模型回复中提取 JSON。
+        解析失败时记录警告并返回 {"_parse_error": ..., "raw": text}，
+        调用方可通过 result.get("_parse_error") 判断是否解析失败并决定降级策略。"""
         if not text:
-            return {"raw": text}
+            logger.warning("AI 返回空内容，无法解析 JSON")
+            return {"_parse_error": "empty response", "raw": text}
 
         # 1. 尝试直接解析
         try:
@@ -237,8 +256,9 @@ class OpenModelService:
             except json.JSONDecodeError:
                 pass
 
-        # 4. 最后退路
-        return {"raw": text}
+        # 4. 最后退路：解析失败，记录警告供排查
+        logger.warning(f"AI 返回内容无法解析为 JSON: {text[:200]}...")
+        return {"_parse_error": "json parse failed", "raw": text}
 
     async def grade_homework_with_image(self, student_name: str, school_level: str,
                                          image_base64: str, extra_context: str = "") -> dict:

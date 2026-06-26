@@ -6,7 +6,7 @@ import logging
 import traceback
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -22,6 +22,13 @@ import hashlib
 import secrets
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_error_detail(e: Exception) -> str:
+    """对外返回的错误信息：生产环境隐藏内部细节"""
+    if settings.is_production:
+        return "系统内部错误，请稍后重试"
+    return f"系统错误: {str(e)}"
 
 # ===== 密码哈希 — 同时支持 bcrypt（新密码）和 SHA-256（bcrypt 4.1 不兼容期存的旧密码）=====
 from passlib.context import CryptContext
@@ -125,7 +132,7 @@ async def register(body: StudentRegister, db: AsyncSession = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"注册失败: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=_safe_error_detail(e))
 
 
 async def _finish_register(db: AsyncSession, student: Student, invite_code: str | None = None) -> TokenResponse:
@@ -138,12 +145,24 @@ async def _finish_register(db: AsyncSession, student: Student, invite_code: str 
             raise HTTPException(status_code=400, detail="邀请码无效")
         if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="邀请码已过期")
-        if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
-            raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+
+        # 原子化自增：避免并发请求同时通过检查导致 used_count 超过 max_used_count
+        if invite.max_used_count > 0:
+            result = await db.execute(
+                update(InviteCode)
+                .where(
+                    InviteCode.id == invite.id,
+                    InviteCode.used_count < InviteCode.max_used_count,
+                )
+                .values(used_count=InviteCode.used_count + 1)
+            )
+            if result.rowcount == 0:
+                raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+        else:
+            invite.used_count += 1
 
         cs = ClassStudent(student_id=student.id, class_id=invite.class_id, joined_via="invite")
         db.add(cs)
-        invite.used_count += 1
 
     await db.commit()
     await db.refresh(student)
@@ -182,7 +201,7 @@ async def login(body: StudentLogin, db: AsyncSession = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"登录失败: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"系统错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=_safe_error_detail(e))
 
 
 @router.post("/student/reset-password", response_model=TokenResponse)
@@ -205,7 +224,7 @@ async def reset_student_password(body: StudentResetPassword, db: AsyncSession = 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="旧密码不正确")
 
     student.password_hash = pwd_context.hash(body.new_password)
-    student.last_login = datetime.now(timezone.utc)
+    # 注意：重置密码不是登录行为，不应更新 last_login
     await db.commit()
     await db.refresh(student)
 
@@ -266,6 +285,15 @@ async def delete_teacher(current_user=Depends(require_teacher), db: AsyncSession
     teacher = current_user[0]
     teacher_id = teacher.id
 
+    # 管理员禁止自删，避免系统失去唯一管理员导致无法管理
+    if getattr(teacher, "is_admin", False):
+        # 统计当前活跃管理员数量，确保至少保留一个
+        admin_count = (await db.execute(
+            select(Teacher).filter(Teacher.is_admin == True, Teacher.is_deleted == False)
+        )).scalars().all()
+        if len(admin_count) <= 1:
+            raise HTTPException(status_code=400, detail="无法删除唯一的管理员账号，请先转移管理员权限")
+
     class_ids = [c.id for c in (await db.execute(select(Class).filter(Class.teacher_id == teacher_id))).scalars().all()]
     if class_ids:
         for model in [ClassStudent, InviteCode]:
@@ -312,6 +340,16 @@ async def teacher_register(body: TeacherRegister, db: AsyncSession = Depends(get
         select(Teacher).filter(Teacher.username == body.username)
     )).scalar_one_or_none()
     if existing:
+        # 若是软删除的教师，允许通过重新注册恢复账号
+        if existing.is_deleted:
+            existing.is_deleted = False
+            existing.name = body.name
+            existing.password_hash = pwd_context.hash(body.password)
+            existing.school = body.school
+            await db.commit()
+            await db.refresh(existing)
+            token = create_access_token({"sub": str(existing.id), "type": "teacher"})
+            return TokenResponse(access_token=token, token_type="bearer", user_type="teacher")
         raise HTTPException(status_code=400, detail="用户名已被注册")
 
     teacher = Teacher(

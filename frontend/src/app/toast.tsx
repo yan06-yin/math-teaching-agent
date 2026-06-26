@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 
 type ToastType = "success" | "error" | "info";
 
@@ -17,16 +17,25 @@ const ToastContext = createContext<ToastCtx>({ toast: () => {} });
 
 export const useToast = () => useContext(ToastContext);
 
-let nextId = 0;
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const nextIdRef = useRef(0);
+  const timersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  // 组件卸载时清理所有未触发的定时器，避免在已卸载组件上 setState
+  useEffect(() => {
+    return () => {
+      Object.values(timersRef.current).forEach(clearTimeout);
+      timersRef.current = {};
+    };
+  }, []);
 
   const toast = useCallback((message: string, type: ToastType = "info") => {
-    const id = nextId++;
+    const id = nextIdRef.current++;
     setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
+    timersRef.current[id] = setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
+      delete timersRef.current[id];
     }, 3000);
   }, []);
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -15,6 +15,14 @@ export default function TeacherAssignments() {
   const [loaded, setLoaded] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoPreviewUrlRef = useRef<string | null>(null);
+
+  // 卸载时释放 blob URL，避免内存泄漏
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrlRef.current) URL.revokeObjectURL(photoPreviewUrlRef.current);
+    };
+  }, []);
 
   const headers = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") : ""}` });
 
@@ -60,7 +68,8 @@ export default function TeacherAssignments() {
       if (photoFile) fd.append("photo", photoFile);
 
       await axios.post("/api/assignments/teacher", fd, {
-        headers: { ...headers(), "Content-Type": "multipart/form-data" },
+        // 不要手动设置 Content-Type：axios 传 FormData 时会自动生成含 boundary 的正确值
+        headers: { ...headers() },
       });
       setTitle(""); setDesc(""); setQuestions([""]); setClassId(0);
       setPhotoFile(null); setPhotoPreview(null);
@@ -140,12 +149,22 @@ export default function TeacherAssignments() {
                 <p className="text-gray-400 text-xs mb-3">学生将直接看到这张照片，然后在线提交答案</p>
                 <input type="file" accept="image/*" capture="environment" onChange={e => {
                   const f = e.target.files?.[0];
-                  if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)); }
+                  if (f) {
+                    // 释放旧的 blob URL，避免内存泄漏
+                    if (photoPreviewUrlRef.current) URL.revokeObjectURL(photoPreviewUrlRef.current);
+                    const url = URL.createObjectURL(f);
+                    photoPreviewUrlRef.current = url;
+                    setPhotoFile(f);
+                    setPhotoPreview(url);
+                  }
                 }} className="block mx-auto text-sm" />
                 {photoPreview && (
                   <div className="mt-3 relative inline-block">
                     <img src={photoPreview} alt="preview" className="max-h-48 mx-auto rounded-lg shadow" />
-                    <button onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                    <button onClick={() => {
+                      if (photoPreviewUrlRef.current) { URL.revokeObjectURL(photoPreviewUrlRef.current); photoPreviewUrlRef.current = null; }
+                      setPhotoFile(null); setPhotoPreview(null);
+                    }}
                       className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center">✕</button>
                   </div>
                 )}

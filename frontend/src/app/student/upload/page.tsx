@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -11,10 +11,28 @@ export default function UploadPage() {
   const [result, setResult] = useState<any>(null);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  // 持有当前 preview 的 object URL，便于更换/卸载时 revoke，避免 Blob 内存泄漏
+  const previewUrlRef = useRef<string | null>(null);
+  // 标记组件是否仍挂载，避免轮询中在已卸载组件上 setState
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) { window.location.href = "/"; }
+    return () => {
+      isMountedRef.current = false;
+      // 卸载时释放 blob URL
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
   }, []);
+
+  /** 选择图片：先释放旧的 blob URL，再创建新的 */
+  const pickFile = (f: File) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    previewUrlRef.current = url;
+    setPreview(url);
+  };
 
   const handleSubmit = async () => {
     if (!file && !manualInput.trim()) return;
@@ -32,8 +50,9 @@ export default function UploadPage() {
 
       let attempts = 0;
       const maxAttempts = 60;
-      while (attempts < maxAttempts) {
+      while (attempts < maxAttempts && isMountedRef.current) {
         await new Promise(resolve => setTimeout(resolve, 3000));
+        if (!isMountedRef.current) return;
         attempts++;
         const elapsed = attempts * 3;
         if (elapsed < 30) setStatusMsg(`⏳ AI 批改中... ${elapsed}s`);
@@ -43,6 +62,7 @@ export default function UploadPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (statusRes.data.status === "done") {
+          if (!isMountedRef.current) return;
           setResult(statusRes.data.result || statusRes.data);
           setStatusMsg("");
           setLoading(false);
@@ -52,10 +72,14 @@ export default function UploadPage() {
           throw new Error(statusRes.data.error || "批改失败");
         }
       }
+      if (!isMountedRef.current) return;
       throw new Error("批改超时（3 分钟），请稍后在作业列表中查看结果");
     } catch (e: any) {
+      if (!isMountedRef.current) return;
       setErrorMsg(e.response?.data?.detail || e.message || "上传失败");
-    } finally { setLoading(false); setStatusMsg(""); }
+    } finally {
+      if (isMountedRef.current) { setLoading(false); setStatusMsg(""); }
+    }
   };
 
   return (
@@ -69,7 +93,7 @@ export default function UploadPage() {
               <div className="border-2 border-dashed rounded-xl p-12 text-center border-gray-200">
                 <div className="text-4xl mb-3">📷</div>
                 <p className="text-gray-500 mb-2">支持 JPG、PNG 格式</p>
-                <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); setPreview(URL.createObjectURL(f)); }}} className="block mx-auto" />
+                <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) pickFile(f); }} className="block mx-auto" />
                 {preview && <img src={preview} alt="preview" className="max-h-64 mx-auto mt-4 rounded-lg shadow" />}
               </div>
             </div>

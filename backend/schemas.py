@@ -89,6 +89,7 @@ class ExamGenerateConfig(BaseModel):
 
 class ExamSubmit(BaseModel):
     answers: list[dict]  # [{"question_index": 0, "answer": "..."}, ...]
+    # 注：保留 list[dict] 以兼容现有前端，建议未来收紧为 list[ExamAnswerItem]
 
 
 class ExamResult(BaseModel):
@@ -196,3 +197,31 @@ class TeacherInfo(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ===== AI Provider（管理员后台） =====
+class AIProviderCreate(BaseModel):
+    """创建 AI 提供商配置"""
+    name: str = Field(..., min_length=1, max_length=100)
+    provider: str = Field(default="openai-compatible", max_length=50)
+    base_url: str = Field(..., min_length=1, max_length=256)
+    api_key: str = Field(..., min_length=1, max_length=512)
+    model: str = Field(..., min_length=1, max_length=100)
+    is_active: bool = False
+
+
+class AIProviderUpdate(BaseModel):
+    """更新 AI 提供商配置（所有字段可选）"""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    provider: Optional[str] = Field(default=None, max_length=50)
+    base_url: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    api_key: Optional[str] = Field(default=None, min_length=1, max_length=512)
+    model: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    is_active: Optional[bool] = None
+
+
+# ===== 考试答案项 =====
+class ExamAnswerItem(BaseModel):
+    """单题答案"""
+    question_index: int = Field(..., ge=0)
+    answer: str = ""

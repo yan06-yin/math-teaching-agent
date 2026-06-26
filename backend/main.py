@@ -61,16 +61,21 @@ async def global_exception_handler(request: Request, exc: Exception):
     if hasattr(exc, "status_code"):
         raise exc
     logging.error(f"未捕获的异常: {exc}\n{traceback.format_exc()}")
+    # 对外只返回通用错误信息，避免泄露数据库表名/SQL/文件路径/密钥等
+    detail = "内部服务器错误，请稍后重试或联系管理员"
+    if settings.is_production:
+        return JSONResponse(status_code=500, content={"detail": detail})
+    # 开发环境返回详细错误便于排查
     return JSONResponse(
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {str(exc)}"},
     )
 
 
-# 跨域（allow_credentials=True 时不能用 *，改用正则匹配所有来源）
+# 跨域（严格使用 config.py 中的 CORS_ORIGINS）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,13 +124,31 @@ if FRONTEND_DIR.exists() and (FRONTEND_DIR / "index.html").exists():
     async def serve_frontend(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("uploads/") or full_path.startswith("_next/"):
             return JSONResponse(content={"detail": "Not Found"}, status_code=404)
+        # 阻止访问敏感文件（配置、源码、数据库、备份等）
+        blocked_exts = {".env", ".py", ".db", ".sqlite", ".sqlite3", ".json", ".yml", ".yaml", ".toml", ".cfg", ".ini", ".bak", ".log"}
+        blocked_names = {".env", ".gitignore", ".gitattributes", "Dockerfile", "docker-compose.yml"}
+        from urllib.parse import unquote
+        safe_path = unquote(full_path)
+        name = os.path.basename(safe_path)
+        _, ext = os.path.splitext(name)
+        if name in blocked_names or ext.lower() in blocked_exts:
+            return JSONResponse(content={"detail": "Forbidden"}, status_code=403)
         # 尝试精确匹配静态文件
         fp = FRONTEND_DIR / full_path
         if fp.exists() and fp.is_file():
+            # 防止路径穿越
+            try:
+                fp.resolve().relative_to(FRONTEND_DIR.resolve())
+            except ValueError:
+                return JSONResponse(content={"detail": "Forbidden"}, status_code=403)
             return FileResponse(fp)
         # 尝试添加 .html 后缀
         fp_html = FRONTEND_DIR / f"{full_path}.html"
         if fp_html.exists() and fp_html.is_file():
+            try:
+                fp_html.resolve().relative_to(FRONTEND_DIR.resolve())
+            except ValueError:
+                return JSONResponse(content={"detail": "Forbidden"}, status_code=403)
             return FileResponse(fp_html)
         # SPA 回退
         return HTMLResponse(content=index_content)

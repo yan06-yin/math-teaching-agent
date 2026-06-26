@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,17 @@ from utils.auth import require_student
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 后台任务引用集合：防止 asyncio.create_task 的返回值被 GC 回收导致任务中途消失
+_background_tasks: set = set()
+
+
+def _spawn_background_task(coro):
+    """创建后台任务并持有引用，防止被 GC 回收"""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config: dict):
@@ -36,17 +47,17 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
         except Exception as e:
             try:
                 await bg_db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_err:
+                logger.error(f"出题回滚失败: {rollback_err}", exc_info=True)
             try:
                 task = await bg_db.get(GradingTask, task_id)
                 if task:
                     task.status = "error"
                     task.error_message = str(e)
                     await bg_db.commit()
-            except Exception:
-                pass
-            logger.error(f"后台出题失败: {e}")
+            except Exception as cleanup_err:
+                logger.error(f"标记出题任务失败状态时出错: {cleanup_err}", exc_info=True)
+            logger.error(f"后台出题失败: {e}", exc_info=True)
 
 
 async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answers: list[dict]):
@@ -74,17 +85,17 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
         except Exception as e:
             try:
                 await bg_db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_err:
+                logger.error(f"考试批改回滚失败: {rollback_err}", exc_info=True)
             try:
                 task = await bg_db.get(GradingTask, grading_task_id)
                 if task:
                     task.status = "error"
                     task.error_message = str(e)
                     await bg_db.commit()
-            except Exception:
-                pass
-            logger.error(f"后台考试批改失败: {e}")
+            except Exception as cleanup_err:
+                logger.error(f"标记批改任务失败状态时出错: {cleanup_err}", exc_info=True)
+            logger.error(f"后台考试批改失败: {e}", exc_info=True)
 
 
 @router.post("/generate")
@@ -122,7 +133,7 @@ async def generate_exam(
     await db.refresh(task)
     await db.refresh(exam)
 
-    asyncio.create_task(_run_exam_generate_background(task.id, exam.id, exam_config))
+    _spawn_background_task(_run_exam_generate_background(task.id, exam.id, exam_config))
 
     return {"task_id": task.id, "exam_id": exam.id, "status": "generating", "message": "试卷正在生成中"}
 
@@ -194,7 +205,7 @@ async def submit_exam(
     await db.commit()
     await db.refresh(task)
 
-    asyncio.create_task(_run_exam_grading_background(task.id, exam_id, body.answers))
+    _spawn_background_task(_run_exam_grading_background(task.id, exam_id, body.answers))
 
     return {"task_id": task.id, "exam_id": exam.id, "status": "grading", "message": "答案已提交，正在批改中"}
 
@@ -205,6 +216,7 @@ async def get_exam_status(
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
+    """轮询考试批改进度（纯读，不写库 —— 写入由后台任务负责，避免并发覆盖）"""
     student_id = current_user[0].id
 
     exam = (await db.execute(
@@ -226,28 +238,23 @@ async def get_exam_status(
     )).scalars().first()
 
     if task and task.status == "done":
-        if task.result_json:
-            exam.score = task.result_json.get("score", exam.score)
-            exam.student_answers = task.result_json.get("student_answers", exam.student_answers)
-            if task.result_json.get("diagnostic_report"):
-                exam.diagnostic_report = task.result_json["diagnostic_report"]
-            if task.result_json.get("learning_plan"):
-                exam.learning_plan = task.result_json["learning_plan"]
+        rj = task.result_json or {}
         return {
             "status": "done",
-            "exam_id": task.result_json.get("exam_id") if task.result_json else exam.id,
-            "score": task.result_json.get("score") if task.result_json else exam.score,
-            "questions": task.result_json.get("questions") if task.result_json else exam.questions_json,
-            "student_answers": task.result_json.get("student_answers") if task.result_json else exam.student_answers,
-            "details": task.result_json.get("details") or exam.details_json or [],
-            "diagnostic_report": task.result_json.get("diagnostic_report", {}) if task.result_json else {},
-            "learning_plan": task.result_json.get("learning_plan", []) if task.result_json else [],
+            "exam_id": rj.get("exam_id", exam.id),
+            "score": rj.get("score", exam.score),
+            "questions": rj.get("questions", exam.questions_json),
+            "student_answers": rj.get("student_answers", exam.student_answers),
+            "details": rj.get("details") or exam.details_json or [],
+            "diagnostic_report": rj.get("diagnostic_report", {}) or {},
+            "learning_plan": rj.get("learning_plan", []) or [],
             "created_at": exam.created_at.isoformat() if exam.created_at else None,
         }
     elif task and task.status == "error":
         return {"status": "error", "error": task.error_message}
 
-    if exam.score is not None and hasattr(exam, 'student_answers') and exam.student_answers:
+    # 后台任务已完成写库但 task 记录尚未同步（或旧数据）：直接读 exam
+    if exam.student_answers:
         return {
             "status": "done", "exam_id": exam.id, "score": exam.score,
             "questions": exam.questions_json, "student_answers": exam.student_answers,
@@ -286,7 +293,7 @@ async def get_exam_report(
 async def my_exams(
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
 ):
     student_id = current_user[0].id
     exams = (await db.execute(

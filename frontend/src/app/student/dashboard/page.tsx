@@ -42,7 +42,8 @@ export default function StudentDashboard() {
     setJoinLoading(true);
     try {
       const r = await axios.post("/api/classes/join", { code: inviteCode.trim() }, { headers: headers() });
-      setMyClass({ class_id: r.data.class_id, class_name: r.data.class_name });
+      // 直接使用后端返回的完整对象，避免 school_level / teacher_name 等字段缺失
+      setMyClass(r.data);
       setInviteCode("");
     } catch (e: any) { toast("加入失败：" + (e.response?.data?.detail || e.message || "请检查邀请码"), "error"); }
     finally { setJoinLoading(false); }

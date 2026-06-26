@@ -12,7 +12,7 @@ from models import (
     Assignment, AssignmentSubmission, HomeworkSubmission, ExamAttempt,
     ErrorRecord, ActivityLog, GradingTask, AIProvider,
 )
-from schemas import AdminAssignStudent
+from schemas import AdminAssignStudent, AIProviderCreate, AIProviderUpdate
 from utils.auth import require_admin
 
 router = APIRouter()
@@ -104,17 +104,15 @@ async def delete_teacher(teacher_id: int, current_user=Depends(require_admin), d
     teacher.is_deleted = True
 
     if student_ids:
+        # 仅删除该教师班级下的学习记录（作业/考试/错题等），不软删除学生账号本身。
+        # 学生账号是独立的，跨班级场景下不应因教师删除而丢失账号。
         for model in [GradingTask, ExamAttempt, HomeworkSubmission, ErrorRecord, ActivityLog, AssignmentSubmission]:
             objs = (await db.execute(select(model).filter(model.student_id.in_(student_ids)))).scalars().all()
             for obj in objs:
                 await db.delete(obj)
-        # 软删除学生而非硬删，避免跨班级外键冲突
-        students = (await db.execute(select(Student).filter(Student.id.in_(student_ids)))).scalars().all()
-        for s in students:
-            s.is_deleted = True
 
     await db.commit()
-    return {"message": f"已删除教师 {teacher.name} 及所有关联数据"}
+    return {"message": f"已删除教师 {teacher.name} 及其班级/作业数据（学生账号保留）"}
 
 
 @router.get("/classes")
@@ -250,12 +248,12 @@ async def list_ai_providers(current_user=Depends(require_admin), db: AsyncSessio
 
 
 @router.post("/ai-providers")
-async def create_ai_provider(body: dict, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
-    if body.get("is_active"):
+async def create_ai_provider(body: AIProviderCreate, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    if body.is_active:
         providers = (await db.execute(select(AIProvider).filter(AIProvider.is_active == True))).scalars().all()
         for p in providers:
             p.is_active = False
-    provider = AIProvider(name=body["name"], provider=body.get("provider", "openai-compatible"), base_url=body["base_url"].rstrip("/"), api_key=body["api_key"], model=body["model"], is_active=body.get("is_active", False))
+    provider = AIProvider(name=body.name, provider=body.provider, base_url=body.base_url.rstrip("/"), api_key=body.api_key, model=body.model, is_active=body.is_active)
     db.add(provider)
     await db.commit()
     await db.refresh(provider)
@@ -265,19 +263,21 @@ async def create_ai_provider(body: dict, current_user=Depends(require_admin), db
 
 
 @router.put("/ai-providers/{provider_id}")
-async def update_ai_provider(provider_id: int, body: dict, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+async def update_ai_provider(provider_id: int, body: AIProviderUpdate, current_user=Depends(require_admin), db: AsyncSession = Depends(get_db)):
     provider = await db.get(AIProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="配置不存在")
-    if body.get("is_active"):
+    if body.is_active:
         others = (await db.execute(select(AIProvider).filter(AIProvider.is_active == True, AIProvider.id != provider_id))).scalars().all()
         for p in others:
             p.is_active = False
+    update_data = body.model_dump(exclude_unset=True)
     for field in ["name", "provider", "base_url", "api_key", "model"]:
-        if field in body:
-            setattr(provider, field, body[field])
-    if "is_active" in body:
-        provider.is_active = body["is_active"]
+        if field in update_data:
+            value = update_data[field]
+            setattr(provider, field, value.rstrip("/") if field == "base_url" else value)
+    if "is_active" in update_data:
+        provider.is_active = update_data["is_active"]
     await db.commit()
     from services.open_model_service import open_model_service
     open_model_service.reload_from_db()

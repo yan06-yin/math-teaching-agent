@@ -5,7 +5,7 @@ import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -163,12 +163,26 @@ async def join_class(body: JoinClass, current_user=Depends(require_student), db:
         invite.is_active = False
         await db.commit()
         raise HTTPException(status_code=400, detail="邀请码已过期")
-    if invite.max_used_count > 0 and invite.used_count >= invite.max_used_count:
-        invite.is_active = False
-        await db.commit()
-        raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+    # 原子化自增：避免并发请求同时通过检查导致 used_count 超过 max_used_count
+    if invite.max_used_count > 0:
+        result = await db.execute(
+            update(InviteCode)
+            .where(
+                InviteCode.id == invite.id,
+                InviteCode.used_count < InviteCode.max_used_count,
+            )
+            .values(used_count=InviteCode.used_count + 1)
+        )
+        if result.rowcount == 0:
+            invite.is_active = False
+            await db.commit()
+            raise HTTPException(status_code=400, detail="邀请码已达使用上限")
+    else:
+        invite.used_count += 1
     db.add(ClassStudent(student_id=student.id, class_id=invite.class_id, joined_via="invite"))
-    invite.used_count += 1
     await db.commit()
+    # 校验班级是否仍然存在（班级可能已被删除但邀请码未清理）
     cls = await db.get(Class, invite.class_id)
+    if not cls:
+        raise HTTPException(status_code=404, detail="班级不存在或已被删除")
     return {"message": f"成功加入班级 {cls.name}", "class_id": cls.id, "class_name": cls.name}

@@ -7,7 +7,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -18,6 +18,9 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assignments", tags=["作业发布"])
+
+# 上传文件大小上限（10MB）
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/teacher")
@@ -45,13 +48,20 @@ async def create_assignment(
     except json.JSONDecodeError:
         questions_list = []
 
-    # 处理照片上传
+    # 处理照片上传（分块读取并校验大小，防止 OOM）
     photo_url = None
     if photo and photo.filename:
         ext = os.path.splitext(photo.filename)[1] or ".jpg"
         filename = f"hw_{uuid.uuid4().hex}{ext}"
         filepath = os.path.join(settings.UPLOAD_DIR, filename)
-        content = await photo.read()
+        content = bytearray()
+        while True:
+            chunk = await photo.read(1024 * 1024)
+            if not chunk:
+                break
+            content.extend(chunk)
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail=f"文件过大，最大支持 {MAX_UPLOAD_BYTES // (1024*1024)}MB")
         with open(filepath, "wb") as f:
             f.write(content)
         photo_url = f"/uploads/{filename}"
@@ -118,11 +128,20 @@ async def student_assignments(current_user=Depends(require_student), db: AsyncSe
     cs = (await db.execute(select(ClassStudent).filter(ClassStudent.student_id == student_id))).scalar_one_or_none()
     my_class_id = cs.class_id if cs else None
 
-    all_assignments = (await db.execute(select(Assignment).order_by(Assignment.created_at.desc()))).scalars().all()
+    # 在 SQL 层过滤：广播作业(class_id IS NULL)或本班作业，避免全表加载后 Python 过滤
+    if my_class_id is not None:
+        assignments = (await db.execute(
+            select(Assignment)
+            .filter(or_(Assignment.class_id == None, Assignment.class_id == my_class_id))
+            .order_by(Assignment.created_at.desc())
+        )).scalars().all()
+    else:
+        assignments = (await db.execute(
+            select(Assignment).filter(Assignment.class_id == None).order_by(Assignment.created_at.desc())
+        )).scalars().all()
+
     result = []
-    for a in all_assignments:
-        if a.class_id is not None and a.class_id != my_class_id:
-            continue
+    for a in assignments:
         sub = (await db.execute(select(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == a.id, AssignmentSubmission.student_id == student_id))).scalar_one_or_none()
         class_name = None
         if a.class_id:

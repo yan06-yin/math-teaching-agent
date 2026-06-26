@@ -42,7 +42,8 @@ export default function StudentAssignments() {
       const fd = new FormData();
       fd.append("answers", JSON.stringify(answers.map((a, i) => ({ question_index: i, answer: a }))));
       await axios.post(`/api/assignments/student/${selected.id}/submit`, fd, {
-        headers: { ...hdrs(), "Content-Type": "multipart/form-data" },
+        // 不要手动设置 Content-Type：axios 传 FormData 时会自动生成含 boundary 的正确值
+        headers: { ...hdrs() },
       });
       alert("提交成功！");
       setSelected(null);
@@ -84,7 +85,7 @@ export default function StudentAssignments() {
               <div key={a.id} className="card">
                 <div className="font-medium">{a.title}</div>
                 <div className="text-xs text-green-600 mt-1">
-                  得分：{a.submission?.score ?? "待批改"} · {new Date(a.submission?.submitted_at).toLocaleDateString("zh-CN")}
+                  得分：{a.submission?.score ?? "待批改"} · {a.submission?.submitted_at ? new Date(a.submission.submitted_at).toLocaleDateString("zh-CN") : "-"}
                 </div>
               </div>
             ))}

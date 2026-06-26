@@ -78,14 +78,14 @@ export default function AdminDashboard() {
       await axios.post("/api/admin/ai-providers", aiForm, { headers: headers() });
       setShowAddAi(false); setAiForm({ name: "", base_url: "", api_key: "", model: "", is_active: false });
       loadAiProviders();
-    } catch (e: any) { toast("保存失败：", "error"); }
+    } catch (e: any) { toast("保存失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleActivateAi = async (id: number) => {
     try {
       await axios.put(`/api/admin/ai-providers/${id}`, { is_active: true }, { headers: headers() });
       loadAiProviders();
-    } catch (e: any) { toast("切换失败：", "error"); }
+    } catch (e: any) { toast("切换失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleDeleteAi = async (id: number) => {
@@ -93,7 +93,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/ai-providers/${id}`, { headers: headers() });
       loadAiProviders();
-    } catch (e: any) { toast("删除失败：", "error"); }
+    } catch (e: any) { toast("删除失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleDeleteTeacher = async (id: number, name: string) => {
@@ -101,7 +101,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/teachers/${id}`, { headers: headers() });
       loadAll();
-    } catch (e: any) { toast("删除失败：", "error"); }
+    } catch (e: any) { toast("删除失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleDeleteClass = async (id: number) => {
@@ -109,7 +109,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/classes/${id}`, { headers: headers() });
       loadAll();
-    } catch (e: any) { toast("删除失败：", "error"); }
+    } catch (e: any) { toast("删除失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleAssignStudent = async (studentId: number) => {
@@ -118,7 +118,7 @@ export default function AdminDashboard() {
     try {
       await axios.post("/api/admin/students/assign", { student_id: studentId, class_id: parseInt(classId) }, { headers: headers() });
       loadAll();
-    } catch (e: any) { toast("分配失败：", "error"); }
+    } catch (e: any) { toast("分配失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleRemoveClass = async (studentId: number, name: string) => {
@@ -126,7 +126,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/students/${studentId}/class`, { headers: headers() });
       loadAll();
-    } catch (e: any) { toast("操作失败：", "error"); }
+    } catch (e: any) { toast("操作失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   const handleDeleteStudent = async (id: number, name: string) => {
@@ -134,7 +134,7 @@ export default function AdminDashboard() {
     try {
       await axios.delete(`/api/admin/students/${id}`, { headers: headers() });
       loadAll();
-    } catch (e: any) { toast("删除失败：", "error"); }
+    } catch (e: any) { toast("删除失败：" + (e.response?.data?.detail || e.message), "error"); }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="spinner spinner-lg"></div></div>;

@@ -3,6 +3,7 @@
 """
 import sys
 import os
+import secrets
 import logging
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,9 +20,17 @@ from routers.auth import _hash_password, _verify_password
 
 pwd_context = type("PwdCtx", (), {"hash": staticmethod(_hash_password), "verify": staticmethod(_verify_password)})()
 
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_NAME = "超级管理员"
+
+
+def _get_admin_password() -> str:
+    """从环境变量读取管理员密码；未设置时随机生成一次性密码并打印一次。"""
+    pwd = os.environ.get("ADMIN_PASSWORD", "").strip()
+    if pwd:
+        return pwd
+    # 自动生成一次性强密码，仅打印一次（开发友好）
+    return secrets.token_urlsafe(12)
 
 
 def seed_admin():
@@ -44,16 +53,25 @@ def seed_admin():
                 db.commit()
                 logger.info(f"已升级 '{ADMIN_USERNAME}' 为管理员")
         else:
+            admin_password = _get_admin_password()
             admin = Teacher(
                 name=ADMIN_NAME,
                 username=ADMIN_USERNAME,
-                password_hash=pwd_context.hash(ADMIN_PASSWORD),
+                password_hash=pwd_context.hash(admin_password),
                 school="系统管理",
                 is_admin=True,
             )
             db.add(admin)
             db.commit()
-            logger.info(f"管理员账号创建成功 (admin / {ADMIN_PASSWORD})")
+            # 仅在本次创建且未通过环境变量显式指定密码时打印一次随机密码
+            if not os.environ.get("ADMIN_PASSWORD"):
+                logger.warning(
+                    f"⚠️ 管理员账号创建成功。用户名: {ADMIN_USERNAME}  临时密码: {admin_password}\n"
+                    f"   请立即登录修改密码！下次启动将生成新的临时密码。"
+                    f"   生产环境请通过 ADMIN_PASSWORD 环境变量固定密码。"
+                )
+            else:
+                logger.info(f"管理员账号创建成功 (用户名: {ADMIN_USERNAME})")
 
         # 检查 AI 模型配置
         existing_provider = db.query(AIProvider).first()

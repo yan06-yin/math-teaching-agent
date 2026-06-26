@@ -148,5 +148,13 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
         return exam, details
 
     except Exception as e:
-        logger.error(f"考试批改失败: {e}")
+        logger.error(f"考试批改失败: {e}", exc_info=True)
+        # 标记考试状态为 error，避免学生看到永远"批改中"
+        try:
+            exam = await db.get(ExamAttempt, exam_id)
+            if exam:
+                exam.status = "error"
+                await db.commit()
+        except Exception as mark_err:
+            logger.error(f"标记考试 error 状态失败: {mark_err}", exc_info=True)
         raise

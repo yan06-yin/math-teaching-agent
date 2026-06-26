@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
 
+    # 运行环境：development / production
+    ENVIRONMENT: str = "development"
+
     # Agnes AI API（可在管理后台动态切换，无需改代码）
     # .env 文件示例：
     # AGNES_API_KEY=your_key_here
@@ -42,12 +45,22 @@ class Settings(BaseSettings):
     # 日志级别
     LOG_LEVEL: str = "INFO"
 
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in ("production", "prod")
+
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
-        """DATABASE_URL 为空时回退到 SQLite；SECRET_KEY 为空时自动生成"""
+        """DATABASE_URL 为空时回退到 SQLite；SECRET_KEY 为空时按环境处理"""
         if not self.DATABASE_URL or not self.DATABASE_URL.strip():
             self.DATABASE_URL = f"sqlite:///{self.DB_PATH}"
         if not self.SECRET_KEY:
+            if self.is_production:
+                # 生产环境必须显式设置 SECRET_KEY，避免重启导致全部用户掉线
+                raise RuntimeError(
+                    "生产环境(ENVIRONMENT=production)必须通过 SECRET_KEY 环境变量设置固定密钥"
+                )
+            # 开发环境允许自动生成
             self.SECRET_KEY = secrets.token_hex(32)
             logging.warning("⚠️ SECRET_KEY 未设置，已自动生成随机密钥（重启后失效，生产环境请设置环境变量）")
         return self

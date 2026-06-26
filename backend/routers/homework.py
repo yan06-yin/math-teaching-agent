@@ -21,6 +21,12 @@ from utils.auth import require_student
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 后台任务引用集合：防止 asyncio.create_task 的返回值被 GC 回收导致任务中途消失
+_background_tasks: set = set()
+
+# 上传文件大小上限（10MB），防止 OOM
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 def _read_file_base64(filepath: str) -> str:
     """同步读取文件并返回 base64 编码"""
@@ -54,7 +60,7 @@ async def _run_grading_background(grading_task_id: int):
 
             image_base64 = ""
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 image_base64 = await loop.run_in_executor(None, _read_file_base64, photo_local_path)
             except Exception as e:
                 logger.error(f"读取图片失败: {e}")
@@ -113,7 +119,7 @@ async def _run_grading_background(grading_task_id: int):
             await bg_db.commit()
 
         except Exception as e:
-            logger.error(f"后台批改失败: {e}")
+            logger.error(f"后台批改失败: {e}", exc_info=True)
             try:
                 task = await bg_db.get(GradingTask, grading_task_id)
                 if task:
@@ -124,8 +130,16 @@ async def _run_grading_background(grading_task_id: int):
                         if subm:
                             subm.status = "error"
                     await bg_db.commit()
-            except Exception:
-                pass
+            except Exception as cleanup_err:
+                logger.error(f"标记批改任务失败状态时出错: {cleanup_err}", exc_info=True)
+
+
+def _spawn_background_task(coro):
+    """创建后台任务并持有引用，防止被 GC 回收"""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 @router.post("/upload")
@@ -145,7 +159,15 @@ async def upload_homework(
     filename = f"{uuid.uuid4().hex}{ext}"
     filepath = os.path.join(settings.UPLOAD_DIR, filename)
 
-    content = await file.read()
+    # 分块读取并校验大小，防止超大文件导致 OOM
+    content = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1MB chunks
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"文件过大，最大支持 {MAX_UPLOAD_BYTES // (1024*1024)}MB")
     with open(filepath, "wb") as f:
         f.write(content)
 
@@ -169,7 +191,7 @@ async def upload_homework(
     await db.refresh(grading_task)
     await db.refresh(submission)
 
-    asyncio.create_task(_run_grading_background(grading_task.id))
+    _spawn_background_task(_run_grading_background(grading_task.id))
 
     return {
         "task_id": grading_task.id,
@@ -185,7 +207,7 @@ async def get_grading_status(
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
-    """轮询批改进度"""
+    """轮询批改进度（纯读，不写库 —— 写入由后台任务负责，避免与后台任务并发覆盖）"""
     student_id = current_user[0].id
     submission = (await db.execute(
         select(HomeworkSubmission).filter(
@@ -205,17 +227,8 @@ async def get_grading_status(
         return {"status": submission.status, "done": submission.status == "done"}
 
     if task.status == "done" and task.result_json:
-        submission.score = task.result_json.get("score", 0)
-        submission.correct_count = task.result_json.get("correct_count", 0)
-        submission.total_count = task.result_json.get("total_count", 0)
-        submission.comments = task.result_json.get("comments", "")
-        submission.wrong_questions_json = task.result_json.get("wrong_questions", [])
-        submission.status = "done"
-        await db.commit()
         return {"status": "done", "result": task.result_json, "submission_id": submission.id}
     elif task.status == "error":
-        submission.status = "error"
-        await db.commit()
         return {"status": "error", "error": task.error_message}
     else:
         return {"status": "processing", "done": False}
