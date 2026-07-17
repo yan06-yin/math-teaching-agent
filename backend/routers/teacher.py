@@ -203,7 +203,7 @@ async def delete_student(student_id: int, current_user=Depends(require_teacher),
 async def get_teacher_dashboard(
     current_user=Depends(require_teacher),
     db: AsyncSession = Depends(get_db),
-    subject: str = Query(None, regex="^(math|chinese|english)$"),
+    subject: str = Query(None, pattern="^(math|chinese|english)$"),
 ):
     teacher = current_user[0]
     teacher_class_ids = [c.id for c in (await db.execute(select(Class).filter(Class.teacher_id == teacher.id))).scalars().all()]

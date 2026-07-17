@@ -102,7 +102,7 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
 @router.post("/generate")
 async def generate_exam(
     config: ExamGenerateConfig,
-    subject: str = Query("math", regex="^(math|chinese|english)$"),
+    subject: str = Query("math", pattern="^(math|chinese|english)$"),
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):

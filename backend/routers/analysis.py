@@ -277,7 +277,7 @@ async def get_knowledge_graph(
 @router.get("/student/{student_id}/learning-path")
 async def get_learning_path(
     student_id: int,
-    subject: str = Query("math", regex="^(math|chinese|english)$"),
+    subject: str = Query("math", pattern="^(math|chinese|english)$"),
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
