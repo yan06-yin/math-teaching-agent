@@ -42,8 +42,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="数学教学智能体 API",
-    description="AI 数学教学辅助系统",
+    title="AI 智能作业批改系统 API",
+    description="AI 多学科作业批改系统",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -127,7 +127,7 @@ async def health_check():
         db_type = "PostgreSQL"
     return {
         "status": "ok",
-        "message": "数学教学智能体运行中",
+        "message": "AI 智能作业批改系统运行中",
         "database": db_type,
     }
 

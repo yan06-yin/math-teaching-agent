@@ -74,10 +74,10 @@ export default function LoginPage() {
         {/* Logo / Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-18 h-18 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mb-5 shadow-lg">
-            <span className="text-4xl">📐</span>
+            <span className="text-4xl">🤖</span>
           </div>
-          <h1 className="text-3xl font-bold gradient-text">数学教学智能体</h1>
-          <p className="text-gray-500 mt-2 text-sm">基于 AI 的智能数学辅导系统</p>
+          <h1 className="text-3xl font-bold gradient-text">AI 智能作业批改系统</h1>
+          <p className="text-gray-500 mt-2 text-sm">数学 · 语文 · 英语 · 拍照即批改</p>
         </div>
 
         <div className="card border-0 shadow-lg rounded-2xl">
@@ -199,7 +199,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          数学教学智能体 v2.0 · 基于 AI 技术
+          AI 智能作业批改系统 v2.0 · 基于 AI 技术
         </p>
       </div>
     </div>

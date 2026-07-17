@@ -12,6 +12,7 @@ export default function StudentDashboard() {
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [trends, setTrends] = useState<any[]>([]);
+  const [comprehensive, setComprehensive] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [myClass, setMyClass] = useState<any>(null);
   const [inviteCode, setInviteCode] = useState("");
@@ -26,12 +27,14 @@ export default function StudentDashboard() {
     if (!sid) return;
     (async () => {
       try {
-        const [pr, tr, cls] = await Promise.all([
+        const [pr, tr, cr, cls] = await Promise.all([
           axios.get(`/api/analysis/student/${sid}`, { headers: headers() }),
           axios.get(`/api/analysis/class/${sid}/trends`, { headers: headers() }),
+          axios.get(`/api/analysis/student/${sid}/comprehensive`, { headers: headers() }).catch(() => null),
           axios.get(`/api/classes/my`, { headers: headers() }).catch(() => null),
         ]);
         setProfile(pr.data); setTrends(tr.data);
+        if (cr?.data) setComprehensive(cr.data);
         if (cls?.data) setMyClass(cls.data);
       } catch {} finally { setLoading(false); }
     })();
@@ -60,8 +63,8 @@ export default function StudentDashboard() {
       <div className="navbar">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-xl">📐</span>
-            <span className="font-bold text-lg">数学教学智能体</span>
+            <span className="text-xl">🤖</span>
+            <span className="font-bold text-lg">AI 智能作业批改</span>
           </div>
           <button onClick={() => { localStorage.clear(); window.location.href = "/"; }}
             className="btn-secondary btn-sm">退出</button>
@@ -116,6 +119,38 @@ export default function StudentDashboard() {
             </Link>
           ))}
         </div>
+
+        {/* 学科概览 */}
+        {comprehensive?.subjects && (
+          <div className="card mb-8">
+            <h3 className="font-semibold mb-4">📚 学科概览</h3>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { key: 'math', label: '数学', color: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-700', icon: '📐' },
+                { key: 'chinese', label: '语文', color: 'bg-green-50 border-green-200', text: 'text-green-700', icon: '📝' },
+                { key: 'english', label: '英语', color: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: '🔤' },
+              ].map(s => {
+                const data = comprehensive.subjects[s.key];
+                if (!data) return null;
+                return (
+                  <div key={s.key} className={`rounded-xl border p-4 ${s.color}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span>{s.icon}</span>
+                      <span className={`font-semibold text-sm ${s.text}`}>{s.label}</span>
+                    </div>
+                    <div className={`text-2xl font-bold ${s.text}`}>{data.avg_score || '-'}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">平均分</div>
+                    {data.trend && (
+                      <div className="text-xs mt-1">
+                        {data.trend === 'rising' ? '📈 上升' : data.trend === 'falling' ? '📉 下降' : '➡️ 稳定'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

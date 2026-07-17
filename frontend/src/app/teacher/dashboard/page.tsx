@@ -11,6 +11,7 @@ type Tab = "overview" | "errors" | "students" | "student" | "kp" | "classes";
 export default function TeacherDashboard() {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("overview");
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
   const [data, setData] = useState<any>(null);
   const [errors, setErrors] = useState<any[]>([]);
   const [studentList, setStudentList] = useState<any[]>([]);
@@ -48,10 +49,11 @@ export default function TeacherDashboard() {
     const h = { Authorization: `Bearer ${t}` };
     let completed = 0;
     const allDone = () => { if (++completed >= 3) setLoading(false); };
-    axios.get("/api/teacher/dashboard", { headers: h }).then(r => setData(r.data)).catch(() => {}).finally(allDone);
-    axios.get("/api/teacher/errors", { headers: h }).then(r => setErrors(r.data)).catch(() => {}).finally(allDone);
+    const subj = subjectFilter ? `?subject=${subjectFilter}` : "";
+    axios.get(`/api/teacher/dashboard${subj}`, { headers: h }).then(r => setData(r.data)).catch(() => {}).finally(allDone);
+    axios.get(`/api/teacher/errors${subj}`, { headers: h }).then(r => setErrors(r.data)).catch(() => {}).finally(allDone);
     axios.get("/api/teacher/students", { headers: h }).then(r => setStudentList(r.data.students || r.data)).catch(() => {}).finally(allDone);
-  }, []);
+  }, [subjectFilter]);
 
   const viewStudent = async (id: number) => {
     const r = await axios.get(`/api/teacher/student/${id}/errors`, { headers: headers() });
@@ -126,8 +128,8 @@ export default function TeacherDashboard() {
       <div className="navbar">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-xl">📐</span>
-            <span className="font-bold text-lg">数学教学智能体 · 教师端</span>
+            <span className="text-xl">🤖</span>
+            <span className="font-bold text-lg">AI 智能作业批改 · 教师端</span>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/teacher/assignments" className="text-sm text-indigo-600 hover:text-indigo-800 font-medium">📋 发布作业</Link>
@@ -141,6 +143,21 @@ export default function TeacherDashboard() {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-6">
+        {/* 学科筛选 */}
+        <div className="flex items-center gap-2 mt-4 mb-3">
+          <span className="text-xs text-gray-400 font-medium">学科筛选：</span>
+          {[
+            { key: '', label: '全部', icon: '📚' },
+            { key: 'math', label: '数学', icon: '📐' },
+            { key: 'chinese', label: '语文', icon: '📝' },
+            { key: 'english', label: '英语', icon: '🔤' },
+          ].map(s => (
+            <button key={s.key} onClick={() => setSubjectFilter(s.key)}
+              className={`text-xs px-3 py-1.5 rounded-full transition-all ${subjectFilter === s.key ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+              {s.icon} {s.label}
+            </button>
+          ))}
+        </div>
         <div className="tabs">
           {TABS.map(t => (
             <button key={t.key} onClick={t.key === "classes" ? openClassTab : () => setTab(t.key)}

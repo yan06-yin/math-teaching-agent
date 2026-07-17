@@ -1,5 +1,5 @@
 """
-数学教学智能体 — 配置文件
+AI 智能作业批改系统 — 配置文件
 """
 import logging
 import os

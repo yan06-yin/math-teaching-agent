@@ -3,8 +3,8 @@ import { ToastProvider } from "./toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "数学教学智能体",
-  description: "基于 AI 的智能数学辅导系统",
+  title: "AI 智能作业批改系统",
+  description: "基于 AI 的多学科作业批改系统，支持数学、语文、英语",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
