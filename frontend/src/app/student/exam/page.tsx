@@ -132,25 +132,23 @@ export default function ExamPage() {
 
   // 是否显示"正在出题/批改"的独立状态页
   if (loading && (pollStatus || step !== "grading") && !result) {
-    const currentStep = step === "config" ? 1 : step === "taking" ? 3 : 4;
     const elapsed = pollStatus ? parseInt(pollStatus.match(/(\d+)s/)?.[1] || "0") : 0;
     const progressPct = Math.min(95, elapsed * 2); // 每秒约2%，最大95%
 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center max-w-md mx-auto px-6">
-          {/* 步骤指示器 */}
+          {/* 出题进度 */}
           <div className="flex items-center justify-center gap-2 mb-6">
-            {["配置", "出题", "答题", "批改", "结果"].map((s, i) => (
-              <div key={i} className="flex items-center gap-1">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                  i + 1 < currentStep ? "bg-green-500 text-white" :
-                  i + 1 === currentStep ? "bg-indigo-500 text-white animate-pulse" :
-                  "bg-gray-200 text-gray-400"
-                }`}>{i + 1 < currentStep ? "✓" : i + 1}</div>
-                {i < 4 && <div className={`w-6 h-0.5 ${i + 1 < currentStep ? "bg-green-500" : "bg-gray-200"}`} />}
-              </div>
-            ))}
+            <div className="flex items-center gap-1">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold bg-indigo-500 text-white animate-pulse">✓</div>
+              <span className="text-xs text-gray-500 ml-1">已提交</span>
+            </div>
+            <div className="w-12 h-0.5 bg-indigo-300" />
+            <div className="flex items-center gap-1">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold bg-indigo-500 text-white">{config.questionCount}题</div>
+              <span className="text-xs text-gray-500 ml-1">生成中...</span>
+            </div>
           </div>
           {/* 进度条 */}
           <div className="w-full bg-gray-200 rounded-full h-2 mb-4">

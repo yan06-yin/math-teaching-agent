@@ -47,16 +47,23 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
         except Exception as e:
             try:
                 await bg_db.rollback()
-            except Exception as rollback_err:
-                logger.error(f"出题回滚失败: {rollback_err}", exc_info=True)
+            except Exception:
+                pass
             try:
+                # 出题失败时删除对应的考试记录
                 task = await bg_db.get(GradingTask, task_id)
                 if task:
                     task.status = "error"
                     task.error_message = str(e)
                     await bg_db.commit()
+                # 删除失败的考试记录
+                exam = await bg_db.get(ExamAttempt, exam_id)
+                if exam:
+                    await bg_db.delete(exam)
+                    await bg_db.commit()
+                    logger.info(f"出题失败，已删除考试记录 exam_id={exam_id}")
             except Exception as cleanup_err:
-                logger.error(f"标记出题任务失败状态时出错: {cleanup_err}", exc_info=True)
+                logger.error(f"清理失败记录时出错: {cleanup_err}", exc_info=True)
             logger.error(f"后台出题失败: {e}", exc_info=True)
 
 

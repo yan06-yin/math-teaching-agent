@@ -113,6 +113,7 @@ class OpenModelService:
                 async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                     if resp.status == 503:
                         await asyncio.sleep(3)
+                        last_error = RuntimeError("503 Service Unavailable")
                         continue
                     if resp.status == 401:
                         raise ValueError("API Key 无效 (401)")
@@ -121,7 +122,8 @@ class OpenModelService:
                     content = self._extract_content(data)
 
                     if not content:
-                        logger.warning("API 返回空内容")
+                        logger.warning(f"API 返回空内容, status={resp.status}, data={json.dumps(data, ensure_ascii=True)[:500]}")
+                        last_error = RuntimeError("empty response")
                         continue
 
                     result = self._parse_json_response(content)
@@ -151,6 +153,7 @@ class OpenModelService:
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": 0.7,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
 
     @staticmethod
@@ -390,8 +393,7 @@ class OpenModelService:
             "explanation": "解析",
         }
         if with_images:
-            question_example["image_svg"] = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">...</svg>'
-            question_example["image_prompt"] = "A clear geometric diagram..."
+            question_example["image_prompt"] = "A geometric diagram showing a right triangle with labeled sides"
 
         json_example = json.dumps({
             "title": f"{subject_name}测试",
@@ -400,21 +402,18 @@ class OpenModelService:
 
         # 学科专属出题指引
         subject_guides = {
-            "math": "数学题应包含计算、证明、应用等类型，几何题可配SVG图。",
-            "chinese": "语文题可包含阅读理解、古诗词鉴赏、作文等题型。作文题需要给出题目和要求，不需要配图。",
-            "english": "英语题可包含语法填空、阅读理解、写作等题型。写作题需要给出题目和要求。",
+            "math": "数学题应包含计算、证明、应用等类型。",
+            "chinese": "语文题可包含阅读理解、古诗词鉴赏、作文等题型。",
+            "english": "英语题可包含语法填空、阅读理解、写作等题型。",
         }
         subject_guide = subject_guides.get(subject, subject_guides["math"])
 
         image_instruction = """
-- **需要配图的题目**请同时输出两个字段：
-  - `image_svg`: 内联 SVG 代码（几何/函数/统计题必须有）
-  - `image_prompt`: 一段英文描述词，描述这张数学插图的样子
+- **需要配图的题目**请输出 `image_prompt` 字段（英文描述词，描述这张图的样子）
 - 以下题型应配图：
   - 几何题：三角形、圆、坐标系等示意图
   - 函数题：坐标系 + 函数图像
-  - 统计题：柱状图、折线图
-- SVG 放在 `<svg>` 标签内，标注 `width="400" height="300"`，用有颜色的图形元素""" if with_images else ""
+  - 统计题：柱状图、折线图""" if with_images else ""
 
         prompt = f"""你是{subject_name}教师，请生成 {question_count} 道{subject_name}题。
 
@@ -436,7 +435,7 @@ class OpenModelService:
 """
         system_content = f"你是一位专业的{subject_name}教师。必须返回纯 JSON 格式，不要用 markdown。"
         if with_images:
-            system_content += " SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素。同时为需要配图的题提供 `image_prompt` 英文描述词。"
+            system_content += " 需要配图的题请提供 `image_prompt` 英文描述词。"
 
         messages = [
             {"role": "system", "content": system_content},

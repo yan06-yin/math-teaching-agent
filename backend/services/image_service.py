@@ -1,5 +1,5 @@
 """
-Agnes Image API 调用服务 — 为数学题生成配图
+Agnes Image API 调用服务 — 为题目生成配图
 使用 agnes-image-2.1-flash 模型
 """
 import asyncio
@@ -7,10 +7,9 @@ import json
 import logging
 from typing import Optional
 
-import httpx
+import aiohttp
 
 from config import settings
-from services.open_model_service import open_model_service
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +18,10 @@ IMAGE_MODEL = "agnes-image-2.1-flash"
 
 
 def _get_image_api_key() -> str:
-    """获取图片 API Key——优先用环境变量"""
     return settings.AGNES_API_KEY or ""
 
 
-async def generate_image(prompt: str, size: str = "1024x768") -> Optional[str]:
+async def generate_image(prompt: str, size: str = "2K") -> Optional[str]:
     """
     调用 Agnes Image API 生成图片，返回图片 URL。
     失败时返回 None（不阻塞出题流程）。
@@ -43,22 +41,20 @@ async def generate_image(prompt: str, size: str = "1024x768") -> Optional[str]:
 
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=30.0)) as client:
-                resp = await client.post(IMAGE_API_URL, headers=headers, json=payload)
-
-            if resp.status_code == 503:
-                await asyncio.sleep(3)
-                continue
-
-            resp.raise_for_status()
-            data = resp.json()
-            image_url = data.get("data", [{}])[0].get("url")
-            if image_url:
-                logger.info(f"图片生成成功: {image_url[:60]}...")
-                return image_url
-            else:
-                logger.warning(f"图片 API 返回无 url: {json.dumps(data)[:200]}")
-                return None
+            async with aiohttp.ClientSession() as session:
+                async with session.post(IMAGE_API_URL, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status == 503:
+                        await asyncio.sleep(3)
+                        continue
+                    resp.raise_for_status()
+                    data = await resp.json()
+                    image_url = data.get("data", [{}])[0].get("url")
+                    if image_url:
+                        logger.info(f"图片生成成功: {image_url[:60]}...")
+                        return image_url
+                    else:
+                        logger.warning(f"图片 API 返回无 url")
+                        return None
 
         except Exception as e:
             logger.warning(f"图片生成失败 (attempt {attempt+1}/2): {e}")
@@ -73,10 +69,9 @@ async def generate_exam_images(questions: list[dict]) -> list[dict]:
     """
     为题目列表生成配图。
     对每道有 image_prompt 的题，调用 Agnes Image API 生成图片。
-    使用 task_indices 正确映射回原 questions 列表，避免索引错位。
     """
     tasks = []
-    task_indices = []  # 记录每个 task 对应的 questions 索引
+    task_indices = []
     for i, q in enumerate(questions):
         prompt = q.get("image_prompt", "").strip()
         if prompt:
