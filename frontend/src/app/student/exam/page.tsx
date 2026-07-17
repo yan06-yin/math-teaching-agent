@@ -210,9 +210,7 @@ export default function ExamPage() {
                   <div className="flex-1">
                     <p className="text-gray-900 mb-1">{q.question}</p>
                     {q.image_url && !imageFailed[i] ? (
-                      <img src={q.image_url} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
-                    ) : q.image_svg ? (
-                      <img src={svgToDataUri(q.image_svg)} alt="题目示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />
+                      <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
                     ) : null}
                     <span className="text-xs text-gray-400">{q.knowledge_point}</span>
                     <textarea className="input mt-3 min-h-[80px]" placeholder="输入答案..." value={answers[i] || ""} onChange={e => { const a=[...answers]; a[i]=e.target.value; setAnswers(a); }} />
@@ -243,8 +241,6 @@ export default function ExamPage() {
                     <p className="text-gray-900 mb-2">{q.question}</p>
                     {q.image_url && !imageFailed[i] ? (
                       <img src={q.image_url} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" onError={() => handleImageError(i)} />
-                    ) : q.image_svg ? (
-                      <img src={svgToDataUri(q.image_svg)} alt="示意图" className="max-w-full max-h-60 rounded-lg mx-auto my-2 border" />
                     ) : null}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div><span className="text-gray-500">你的答案：</span><span>{result.student_answers?.[i]?.answer || "未作答"}</span></div>
@@ -256,7 +252,7 @@ export default function ExamPage() {
               </div>
               );
             })}
-            <div className="flex gap-3"><Link href="/student/report" className="btn-primary flex-1 text-center py-3">📊 查看诊断报告</Link><Link href="/student/dashboard" className="btn-secondary flex-1 text-center py-3">返回主页</Link></div>
+            <div className="flex gap-3"><Link href="/student/report" className="btn-primary flex-1 text-center py-3">📊 诊断报告</Link><Link href="/student/plan" className="btn-primary flex-1 text-center py-3">📋 学习计划</Link><Link href="/student/dashboard" className="btn-secondary flex-1 text-center py-3">返回主页</Link></div>
           </div>
         )}
       </main>

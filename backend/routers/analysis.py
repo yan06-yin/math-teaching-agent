@@ -299,3 +299,58 @@ async def get_learning_path(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"学习路径生成失败: {e}")
+
+
+@router.post("/student/{student_id}/generate-learning-plan")
+async def generate_learning_plan(
+    student_id: int,
+    subject: str = Query("math", pattern="^(math|chinese|english)$"),
+    days: int = Query(14, ge=7, le=30),
+    current_user=Depends(require_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动生成学习计划：分析学生所有数据，调用 AI 生成"""
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    try:
+        errors = (await db.execute(
+            select(ErrorRecord).filter(ErrorRecord.student_id == student_id)
+            .order_by(ErrorRecord.error_count.desc()).limit(10)
+        )).scalars().all()
+
+        hw_scores = (await db.execute(
+            select(HomeworkSubmission.score).filter(
+                HomeworkSubmission.student_id == student_id,
+                HomeworkSubmission.subject == subject,
+                HomeworkSubmission.status == "done",
+                HomeworkSubmission.is_deleted == False,
+            )
+        )).scalars().all()
+
+        avg_score = round(sum(hw_scores) / len(hw_scores), 1) if hw_scores else 70
+        weak_points = [{"name": e.knowledge_point, "mastery": max(0, 1 - e.error_count * 0.2)}
+                       for e in errors[:5]] if errors else []
+
+        from services.open_model_service import open_model_service
+        from utils.learning_path import LearningPathGenerator
+        gen = LearningPathGenerator(open_model_service)
+        plan = await gen.generate(
+            student_name=student.name,
+            school_level=student.school_level,
+            weak_points=weak_points,
+            strong_points=[],
+            subject=subject,
+            score=avg_score,
+            days=days,
+        )
+
+        return {"student_id": student_id, "subject": subject, "avg_score": avg_score,
+                "weak_points": [e.knowledge_point for e in errors[:5]], "plan": plan}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"学习计划生成失败: {e}")
