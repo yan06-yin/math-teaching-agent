@@ -181,11 +181,24 @@ export default function StudentDashboard() {
                 {profile.weaknesses?.length > 0 && (
                   <div>
                     <div className="text-sm font-medium text-gray-700 mb-2">📌 薄弱知识点</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {profile.weaknesses.map((wp: string) => (
-                        <span key={wp} className="px-2.5 py-1 bg-red-50 text-red-600 text-xs rounded-full border border-red-100">{wp}</span>
-                      ))}
-                    </div>
+                    {[
+                      { key: 'math', label: '数学', color: 'bg-red-50 border-red-100 text-red-600' },
+                      { key: 'chinese', label: '语文', color: 'bg-green-50 border-green-100 text-green-600' },
+                      { key: 'english', label: '英语', color: 'bg-amber-50 border-amber-100 text-amber-600' },
+                    ].map(s => {
+                      const pts = profile.weak_by_subject?.[s.key] || [];
+                      if (pts.length === 0) return null;
+                      return (
+                        <div key={s.key} className="mb-2">
+                          <span className="text-xs font-medium text-gray-400">{s.label}</span>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {pts.map((wp: string) => (
+                              <span key={wp} className={`px-2.5 py-1 text-xs rounded-full border ${s.color}`}>{wp}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {profile.strengths?.length > 0 && (

@@ -118,6 +118,7 @@ class ErrorRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
     knowledge_point = Column(String(100), nullable=False)
+    subject = Column(String(20), default="math")  # math / chinese / english
     question_text = Column(Text, default="")
     student_answer = Column(Text, default="")
     correct_answer = Column(Text, default="")

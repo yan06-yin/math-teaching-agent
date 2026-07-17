@@ -170,7 +170,7 @@ async def _run_grading_background(grading_task_id: int):
                         existing.last_error_date = datetime.now(timezone.utc)
                     else:
                         bg_db.add(ErrorRecord(
-                            student_id=student_id, knowledge_point=kp,
+                            student_id=student_id, knowledge_point=kp, subject=subject,
                             question_text=wrong.get("question", ""),
                             student_answer=wrong.get("student_answer", ""),
                             correct_answer=wrong.get("correct_answer", ""),

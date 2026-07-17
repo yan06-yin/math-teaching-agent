@@ -81,7 +81,7 @@ async def get_student_profile(
     total_count = hw_valid + exam_valid
     avg_score = round(total_score / total_count, 1) if total_count > 0 else 0
 
-    # 错题知识点统计
+    # 错题知识点统计（按学科分组）
     errors = (await db.execute(
         select(ErrorRecord).filter(ErrorRecord.student_id == student_id)
         .order_by(ErrorRecord.error_count.desc())
@@ -89,6 +89,13 @@ async def get_student_profile(
 
     weak_points = [e.knowledge_point for e in errors[:5]] if errors else []
     strong_points = [e.knowledge_point for e in errors if e.error_count <= 1][:5] if errors else []
+
+    # 按学科分组的薄弱点
+    weak_by_subject = {"math": [], "chinese": [], "english": []}
+    for e in errors:
+        subj = getattr(e, "subject", "math") or "math"
+        if subj in weak_by_subject:
+            weak_by_subject[subj].append(e.knowledge_point)
 
     # 趋势判断
     scores = (await db.execute(
@@ -120,6 +127,7 @@ async def get_student_profile(
         avg_score=round(avg_score, 1),
         strengths=strong_points,
         weaknesses=weak_points,
+        weak_by_subject=weak_by_subject,
         trend=trend,
     )
 

@@ -132,7 +132,7 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list, subject: str
                     existing.last_error_date = datetime.now(timezone.utc)
                 else:
                     db.add(ErrorRecord(
-                        student_id=exam.student_id, knowledge_point=kp,
+                        student_id=exam.student_id, knowledge_point=kp, subject=subject,
                         question_text=detail.get("question", "")[:200],
                         student_answer=detail.get("student_answer", ""),
                         correct_answer=detail.get("correct_answer", ""),

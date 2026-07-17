@@ -119,6 +119,7 @@ class StudentProfile(BaseModel):
     avg_score: float
     strengths: list[str]
     weaknesses: list[str]
+    weak_by_subject: dict = {"math": [], "chinese": [], "english": []}
     trend: str  # rising / stable / falling
 
 

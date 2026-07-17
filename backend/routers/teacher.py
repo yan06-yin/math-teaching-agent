@@ -38,17 +38,14 @@ async def get_error_summary(
     )
     if knowledge_point:
         query = query.filter(ErrorRecord.knowledge_point == knowledge_point)
+    if subject:
+        query = query.filter(ErrorRecord.subject == subject)
     results = (await db.execute(query.order_by(func.sum(ErrorRecord.error_count).desc()))).all()
 
     total_students = len(student_ids) if student_ids and student_ids != [-1] else 1
 
     output = []
     for r in results:
-        # 按学科过滤知识点
-        from utils.knowledge_mapper import get_knowledge_info
-        point_info = get_knowledge_info(r.knowledge_point, subject=subject or "math")
-        if subject and subject not in " ".join(point_info.get("tags", [])):
-            continue
 
         recent = (await db.execute(
             select(ErrorRecord).filter(
@@ -240,13 +237,7 @@ async def get_teacher_dashboard(
     # 知识点热力图
     error_filter = [ErrorRecord.student_id.in_(student_ids_sub)]
     if subject:
-        # 根据学科过滤知识点（通过知识点名称前缀匹配）
-        if subject == "chinese":
-            error_filter.append(ErrorRecord.knowledge_point.like("作文%") | ErrorRecord.knowledge_point.like("阅读%") |
-                                ErrorRecord.knowledge_point.like("语言运用%") | ErrorRecord.knowledge_point.like("字%") |
-                                ErrorRecord.knowledge_point.like("古诗词%") | ErrorRecord.knowledge_point.like("文言%"))
-        elif subject == "english":
-            error_filter.append(ErrorRecord.knowledge_point.like("英语-%"))
+        error_filter.append(ErrorRecord.subject == subject)
 
     errors = (await db.execute(
         select(ErrorRecord.knowledge_point, func.sum(ErrorRecord.error_count).label("total"), func.count(func.distinct(ErrorRecord.student_id)).label("students"))
