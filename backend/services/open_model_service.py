@@ -9,7 +9,7 @@ import sys
 import threading
 from typing import Optional, TYPE_CHECKING
 
-import httpx
+import aiohttp
 
 from config import settings
 
@@ -23,20 +23,34 @@ class OpenModelService:
     """AI API 客户端 — 从数据库动态读取配置，支持管理后台切换模型"""
 
     def __init__(self):
-        # 从环境变量读取默认值（首次启动时无数据库配置时使用）
         self.api_key = settings.AGNES_API_KEY
         self.base_url = settings.AGNES_BASE_URL
         self.model = settings.AGNES_MODEL
         self._provider_id: Optional[int] = None
-        # 降级回退：没有数据库配置时，仍用环境变量中的 API key
         self._fallback_api_key = settings.AGNES_API_KEY
         self._fallback_base_url = settings.AGNES_BASE_URL
         self._fallback_model = settings.AGNES_MODEL
-        # 使用 Lock 保护 _fallback_active，避免并发请求误触发降级
         self._fallback_lock = threading.Lock()
         self._fallback_active = False
-        # 共享 httpx 客户端（连接池复用，减少 TCP 握手开销）
-        self._client: Optional[httpx.AsyncClient] = None
+        # 共享 aiohttp 会话（连接池复用）
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._session_lock = threading.Lock()
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """获取共享 aiohttp 会话（懒初始化，连接池复用，线程安全）"""
+        if self._session is None or self._session.closed:
+            with self._session_lock:
+                if self._session is None or self._session.closed:
+                    connector = aiohttp.TCPConnector(
+                        limit=20,
+                        limit_per_host=10,
+                        ttl_dns_cache=300,
+                    )
+                    self._session = aiohttp.ClientSession(
+                        connector=connector,
+                        json_serialize=lambda x: json.dumps(x, ensure_ascii=True),
+                    )
+        return self._session
 
     def reload_from_db(self, db_session=None):
         """从数据库加载活跃的 AI 提供商配置"""
@@ -58,43 +72,18 @@ class OpenModelService:
         except Exception as e:
             logger.warning(f"从数据库加载 AI 配置失败，使用默认配置: {e}")
         finally:
-            # 确保同步 session 在异常时也被关闭，避免连接泄漏
             if close_session and db_session is not None:
                 try:
                     db_session.close()
                 except Exception:
                     pass
 
-    def _get_client(self, timeout: float = 120.0) -> httpx.AsyncClient:
-        """获取共享 httpx 客户端（懒初始化，连接池复用）。
-        注意：asyncio.Lock 的获取应在协程中完成，这里保持简单实现；
-        并发首次创建可能产生多个 client，但旧 client 会被关闭，最坏情况是短暂重复创建，
-        不会造成持久泄漏。严格防并发应在 lifespan 中预创建。"""
-        if self._client is None or self._client.is_closed:
-            new_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout, connect=30.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-            )
-            # 二次检查：若期间已有其他协程创建了 client，关闭新建的并复用已有的
-            if self._client is not None and not self._client.is_closed:
-                # 已有可用 client，丢弃新建的（不 await，交给 GC）
-                try:
-                    asyncio.get_event_loop().create_task(new_client.aclose())
-                except Exception:
-                    pass
-            else:
-                self._client = new_client
-        return self._client
-
     async def _chat(self, messages: list[dict], max_tokens: int = 2048, force_model: str = None, timeout: float = 120.0) -> dict:
-        """调用 AI 聊天接口，自带重试 + 错误降级到 Agnes Flash"""
         return await self._chat_with_fallback(messages, max_tokens, force_model, timeout=timeout)
 
     async def _chat_with_fallback(self, messages: list[dict], max_tokens: int = 2048,
                                     force_model: str = None, is_retry: bool = False,
                                     timeout: float = 120.0) -> dict:
-        """带降级的 AI 调用：优先用当前模型，失败后自动用 Agnes Flash"""
-        # 如果 force_model 指定了模型，临时切换
         with self._fallback_lock:
             using_fallback = self._fallback_active or is_retry
 
@@ -107,62 +96,43 @@ class OpenModelService:
             base_url = self.base_url
             model = force_model or self.model
 
-        # 自动检测接口类型
-        if "openmodel" in base_url.lower():
-            url = f"{base_url.rstrip('/')}/messages"
-            payload = self._build_messages_payload(messages, max_tokens, model)
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json; charset=utf-8",
-                "anthropic-version": "2023-06-01",
-            }
-        else:
-            url = f"{base_url.rstrip('/')}/chat/completions"
-            payload = self._build_openai_payload(messages, max_tokens, model)
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json; charset=utf-8",
-            }
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        payload = self._build_openai_payload(messages, max_tokens, model)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
         model_label = "Agnes Flash(fallback)" if using_fallback else model
         logger.info(f"AI 请求: {model_label} -> {url[:50]}...")
 
-        max_attempts = 1  # 每个模型尝试 1 次，失败就降级（避免链路过长）
         last_error = None
-        for attempt in range(max_attempts):
+        for attempt in range(1):
             try:
-                client = self._get_client(timeout)
-                # 手动序列化 JSON，避免 Windows 编码问题
-                payload_str = json.dumps(payload, ensure_ascii=False)
-                resp = await client.post(url, headers=headers, data=payload_str)
+                session = self._get_session()
+                async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+                    if resp.status == 503:
+                        await asyncio.sleep(3)
+                        continue
+                    if resp.status == 401:
+                        raise ValueError("API Key 无效 (401)")
 
-                if resp.status_code == 503:
-                    await asyncio.sleep(3)
-                    continue
+                    data = await resp.json()
+                    content = self._extract_content(data)
 
-                if resp.status_code == 401:
-                    raise ValueError(f"API Key 无效（401）")
+                    if not content:
+                        logger.warning("API 返回空内容")
+                        continue
 
-                resp.raise_for_status()
-                data = resp.json()
-                content = self._extract_content(data)
-
-                if not content:
-                    logger.warning(f"API 返回空内容")
-                    continue
-
-                result = self._parse_json_response(content)
-                if using_fallback:
-                    result["_fallback_used"] = True
-                return result
+                    result = self._parse_json_response(content)
+                    if using_fallback:
+                        result["_fallback_used"] = True
+                    return result
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"AI 请求失败 (attempt {attempt+1}/{max_attempts}): {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(3)
+                logger.warning(f"AI 请求失败 (attempt {attempt+1}): {e}")
 
-        # 所有尝试都失败，且还没试过回退 -> 自动降级到 Agnes Flash
         if not using_fallback and not is_retry:
             logger.warning(f"模型 {model} 请求失败，自动降级到 Agnes AI Flash")
             with self._fallback_lock:
@@ -183,26 +153,8 @@ class OpenModelService:
             "temperature": 0.7,
         }
 
-    def _build_messages_payload(self, messages, max_tokens, model):
-        system_text = ""
-        clean_messages = []
-        for m in messages:
-            if m["role"] == "system":
-                system_text = m["content"]
-            else:
-                clean_messages.append(m)
-        payload = {
-            "model": model,
-            "messages": clean_messages,
-            "max_tokens": max_tokens,
-        }
-        if system_text:
-            payload["system"] = system_text
-        return payload
-
     @staticmethod
     def _extract_content(data: dict) -> str:
-        """从任意响应格式中提取文本内容"""
         if "output" in data:
             for item in data["output"]:
                 if item.get("type") == "message":
@@ -223,22 +175,16 @@ class OpenModelService:
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
-        """从模型回复中提取 JSON。
-        解析失败时记录警告并返回 {"_parse_error": ..., "raw": text}，
-        调用方可通过 result.get("_parse_error") 判断是否解析失败并决定降级策略。"""
         if not text:
             logger.warning("AI 返回空内容，无法解析 JSON")
             return {"_parse_error": "empty response", "raw": text}
 
-        # 1. 尝试直接解析
         try:
             return json.loads(text)
         except (json.JSONDecodeError, TypeError):
             pass
 
         text_stripped = text.strip()
-
-        # 2. 尝试提取 ```json ... ``` 中的 JSON
         import re
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text_stripped, re.DOTALL)
         if match:
@@ -247,7 +193,6 @@ class OpenModelService:
             except json.JSONDecodeError:
                 pass
 
-        # 3. 尝试找第一个 { 到最后一个 }
         start = text_stripped.find("{")
         end = text_stripped.rfind("}") + 1
         if start != -1 and end > start:
@@ -257,7 +202,6 @@ class OpenModelService:
             except json.JSONDecodeError:
                 pass
 
-        # 4. 最后退路：解析失败，记录警告供排查
         logger.warning(f"AI 返回内容无法解析为 JSON: {text[:200]}...")
         return {"_parse_error": "json parse failed", "raw": text}
 

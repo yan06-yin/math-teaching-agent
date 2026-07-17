@@ -48,8 +48,8 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     yield
     from services.open_model_service import open_model_service
-    if open_model_service._client and not open_model_service._client.is_closed:
-        await open_model_service._client.aclose()
+    if open_model_service._session and not open_model_service._session.closed:
+        await open_model_service._session.close()
 
 
 app = FastAPI(
