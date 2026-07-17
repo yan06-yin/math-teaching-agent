@@ -113,7 +113,7 @@ class OpenModelService:
             payload = self._build_messages_payload(messages, max_tokens, model)
             headers = {
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
+                "Content-Type": "application/json; charset=utf-8",
                 "anthropic-version": "2023-06-01",
             }
         else:
@@ -121,10 +121,10 @@ class OpenModelService:
             payload = self._build_openai_payload(messages, max_tokens, model)
             headers = {
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
+                "Content-Type": "application/json; charset=utf-8",
             }
 
-        model_label = "Agnes Flash(回退)" if using_fallback else model
+        model_label = "Agnes Flash(fallback)" if using_fallback else model
         logger.info(f"AI 请求: {model_label} -> {url[:50]}...")
 
         max_attempts = 1  # 每个模型尝试 1 次，失败就降级（避免链路过长）
@@ -132,7 +132,9 @@ class OpenModelService:
         for attempt in range(max_attempts):
             try:
                 client = self._get_client(timeout)
-                resp = await client.post(url, headers=headers, json=payload)
+                # 手动序列化 JSON，避免 Windows 编码问题
+                payload_str = json.dumps(payload, ensure_ascii=False)
+                resp = await client.post(url, headers=headers, data=payload_str)
 
                 if resp.status_code == 503:
                     await asyncio.sleep(3)
@@ -171,7 +173,7 @@ class OpenModelService:
                 with self._fallback_lock:
                     self._fallback_active = False
 
-        raise ValueError(f"AI 请求多次重试后仍然失败 (model={model_label}): {last_error}")
+        raise ValueError(f"AI call failed (model={model_label}): {last_error}")
 
     def _build_openai_payload(self, messages, max_tokens, model):
         return {
