@@ -5,7 +5,7 @@
 import logging
 import traceback
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,8 +89,15 @@ def create_access_token(data: dict) -> str:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(body: StudentRegister, db: AsyncSession = Depends(get_db)):
+async def register(body: StudentRegister, request: Request, db: AsyncSession = Depends(get_db)):
     """学生注册（姓名+学号+密码+可选邀请码）"""
+    # 速率限制：注册 10次/分钟
+    try:
+        from main import limiter, HAS_RATE_LIMIT
+        if HAS_RATE_LIMIT:
+            await limiter.limit(request, "10/minute")
+    except (ImportError, Exception):
+        pass
     try:
         existing = (await db.execute(
             select(Student).filter(Student.student_id == body.student_id, Student.is_deleted == False)
@@ -172,8 +179,15 @@ async def _finish_register(db: AsyncSession, student: Student, invite_code: str 
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: StudentLogin, db: AsyncSession = Depends(get_db)):
+async def login(body: StudentLogin, request: Request, db: AsyncSession = Depends(get_db)):
     """学生登录（学号+密码）"""
+    # 速率限制：登录 20次/分钟
+    try:
+        from main import limiter, HAS_RATE_LIMIT
+        if HAS_RATE_LIMIT:
+            await limiter.limit(request, "20/minute")
+    except (ImportError, Exception):
+        pass
     try:
         student = (await db.execute(
             select(Student).filter(
@@ -320,8 +334,15 @@ async def delete_teacher(current_user=Depends(require_teacher), db: AsyncSession
 
 
 @router.post("/teacher/login", response_model=TokenResponse)
-async def teacher_login(body: TeacherLogin, db: AsyncSession = Depends(get_db)):
+async def teacher_login(body: TeacherLogin, request: Request, db: AsyncSession = Depends(get_db)):
     """教师登录"""
+    # 速率限制：登录 10次/分钟
+    try:
+        from main import limiter, HAS_RATE_LIMIT
+        if HAS_RATE_LIMIT:
+            await limiter.limit(request, "10/minute")
+    except (ImportError, Exception):
+        pass
     teacher = (await db.execute(
         select(Teacher).filter(Teacher.username == body.username, Teacher.is_deleted == False)
     )).scalar_one_or_none()

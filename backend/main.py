@@ -13,7 +13,7 @@ from pathlib import Path
 
 from config import settings
 
-# 配置日志（从环境变量读取级别，必须在 from config 之后）
+# 配置日志
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     format="%(levelname)s:     %(message)s",
@@ -28,18 +28,14 @@ from seed_admin import seed_admin
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库"""
     init_db()
-    # 自动创建管理员账号
     try:
         seed_admin()
-        # 启动时从数据库加载 AI 模型配置
         from services.open_model_service import open_model_service
         open_model_service.reload_from_db()
     except Exception as e:
         logging.warning(f"管理员账号初始化跳过: {e}")
-    # 确保上传目录存在
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     yield
-    # 关闭共享 httpx 客户端（释放连接池）
     from services.open_model_service import open_model_service
     if open_model_service._client and not open_model_service._client.is_closed:
         await open_model_service._client.aclose()
@@ -53,33 +49,57 @@ app = FastAPI(
 )
 
 
-# 全局异常处理器 —— 捕获所有未处理的 500 异常并记录详细信息
+# 速率限制
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    HAS_RATE_LIMIT = True
+except ImportError:
+    HAS_RATE_LIMIT = False
+    logging.warning("slowapi 未安装，速率限制未启用。安装：pip install slowapi")
+
+
+# 全局异常处理器
 @app.exception_handler(500)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # 让 FastAPI 自己处理 HTTPException 和 ValidationError
     if hasattr(exc, "status_code"):
         raise exc
     logging.error(f"未捕获的异常: {exc}\n{traceback.format_exc()}")
-    # 对外只返回通用错误信息，避免泄露数据库表名/SQL/文件路径/密钥等
     detail = "内部服务器错误，请稍后重试或联系管理员"
     if settings.is_production:
         return JSONResponse(status_code=500, content={"detail": detail})
-    # 开发环境返回详细错误便于排查
     return JSONResponse(
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {str(exc)}"},
     )
 
 
-# 跨域（严格使用 config.py 中的 CORS_ORIGINS）
+# 跨域
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# 安全响应头中间件
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # 上传目录的图片通过 img 标签引用，不会执行脚本
+    if request.url.path.startswith("/uploads/"):
+        response.headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+    return response
 
 # 静态文件（上传的图片）
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")

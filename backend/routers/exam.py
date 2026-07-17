@@ -31,13 +31,13 @@ def _spawn_background_task(coro):
     return task
 
 
-async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config: dict):
+async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config: dict, subject: str = "math"):
     """后台生成试卷"""
     async with AsyncSessionLocal() as bg_db:
         try:
             exam = await bg_db.get(ExamAttempt, exam_id)
             if exam and not exam.questions_json:
-                result = await generate_and_save_exam(bg_db, exam.student_id, exam_config, exam_id)
+                result = await generate_and_save_exam(bg_db, exam.student_id, exam_config, exam_id, subject=subject)
                 task = await bg_db.get(GradingTask, task_id)
                 if task:
                     task.status = "done"
@@ -60,7 +60,7 @@ async def _run_exam_generate_background(task_id: int, exam_id: int, exam_config:
             logger.error(f"后台出题失败: {e}", exc_info=True)
 
 
-async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answers: list[dict]):
+async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answers: list[dict], subject: str = "math"):
     """后台执行考试批改"""
     async with AsyncSessionLocal() as bg_db:
         try:
@@ -69,7 +69,7 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
                 task.status = "processing"
                 await bg_db.commit()
 
-            graded, details = await grade_exam(bg_db, exam_id, answers)
+            graded, details = await grade_exam(bg_db, exam_id, answers, subject=subject)
             task = await bg_db.get(GradingTask, grading_task_id)
             if task:
                 task.status = "done"
@@ -79,6 +79,7 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
                     "student_answers": graded.student_answers,
                     "diagnostic_report": graded.diagnostic_report,
                     "learning_plan": graded.learning_plan,
+                    "subject": subject,
                 }
                 task.completed_at = datetime.now(timezone.utc)
                 await bg_db.commit()
@@ -101,16 +102,19 @@ async def _run_exam_grading_background(grading_task_id: int, exam_id: int, answe
 @router.post("/generate")
 async def generate_exam(
     config: ExamGenerateConfig,
+    subject: str = Query("math", regex="^(math|chinese|english)$"),
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
-    """根据学生情况生成试卷 — 返回 task_id，后台异步出题"""
+    """根据学生情况生成试卷 — 返回 task_id，后台异步出题
+    subject: math / chinese / english，默认数学
+    """
     student_id = current_user[0].id
     student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    exam_config = {**config.model_dump(), "school_level": student.school_level}
+    exam_config = {**config.model_dump(), "school_level": student.school_level, "subject": subject}
 
     exam = ExamAttempt(
         student_id=student_id,
@@ -133,9 +137,9 @@ async def generate_exam(
     await db.refresh(task)
     await db.refresh(exam)
 
-    _spawn_background_task(_run_exam_generate_background(task.id, exam.id, exam_config))
+    _spawn_background_task(_run_exam_generate_background(task.id, exam.id, exam_config, subject=subject))
 
-    return {"task_id": task.id, "exam_id": exam.id, "status": "generating", "message": "试卷正在生成中"}
+    return {"task_id": task.id, "exam_id": exam.id, "subject": subject, "status": "generating", "message": "试卷正在生成中"}
 
 
 @router.get("/generate/{exam_id}/status")
@@ -191,6 +195,10 @@ async def submit_exam(
     if existing_task:
         raise HTTPException(status_code=400, detail="该考试已提交过，不能重复提交")
 
+    # 从 exam_config 中读取 subject
+    exam_config = exam.exam_config_json or {}
+    subject = exam_config.get("subject", "math")
+
     exam.student_answers = body.answers
     exam.status = "submitted"
     await db.commit()
@@ -205,9 +213,9 @@ async def submit_exam(
     await db.commit()
     await db.refresh(task)
 
-    _spawn_background_task(_run_exam_grading_background(task.id, exam_id, body.answers))
+    _spawn_background_task(_run_exam_grading_background(task.id, exam_id, body.answers, subject=subject))
 
-    return {"task_id": task.id, "exam_id": exam.id, "status": "grading", "message": "答案已提交，正在批改中"}
+    return {"task_id": task.id, "exam_id": exam.id, "subject": subject, "status": "grading", "message": "答案已提交，正在批改中"}
 
 
 @router.get("/{exam_id}/status")

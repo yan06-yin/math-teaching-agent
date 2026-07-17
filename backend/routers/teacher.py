@@ -19,6 +19,7 @@ async def get_error_summary(
     current_user=Depends(require_teacher),
     db: AsyncSession = Depends(get_db),
     knowledge_point: str = None,
+    subject: str = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -43,6 +44,12 @@ async def get_error_summary(
 
     output = []
     for r in results:
+        # 按学科过滤知识点
+        from utils.knowledge_mapper import get_knowledge_info
+        point_info = get_knowledge_info(r.knowledge_point, subject=subject or "math")
+        if subject and subject not in " ".join(point_info.get("tags", [])):
+            continue
+
         recent = (await db.execute(
             select(ErrorRecord).filter(
                 ErrorRecord.knowledge_point == r.knowledge_point,
@@ -193,7 +200,11 @@ async def delete_student(student_id: int, current_user=Depends(require_teacher),
 
 
 @router.get("/dashboard")
-async def get_teacher_dashboard(current_user=Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+async def get_teacher_dashboard(
+    current_user=Depends(require_teacher),
+    db: AsyncSession = Depends(get_db),
+    subject: str = Query(None, regex="^(math|chinese|english)$"),
+):
     teacher = current_user[0]
     teacher_class_ids = [c.id for c in (await db.execute(select(Class).filter(Class.teacher_id == teacher.id))).scalars().all()]
 
@@ -203,27 +214,43 @@ async def get_teacher_dashboard(current_user=Depends(require_teacher), db: Async
     student_ids_sub = select(ClassStudent.student_id).filter(ClassStudent.class_id.in_(teacher_class_ids)).scalar_subquery()
 
     total_students = (await db.execute(select(func.count(Student.id)).filter(Student.id.in_(student_ids_sub)))).scalar() or 0
-    total_homework = (await db.execute(select(func.count(HomeworkSubmission.id)).filter(HomeworkSubmission.student_id.in_(student_ids_sub), HomeworkSubmission.is_deleted == False))).scalar() or 0
-    total_exams = (await db.execute(select(func.count(ExamAttempt.id)).filter(ExamAttempt.student_id.in_(student_ids_sub), ExamAttempt.is_deleted == False))).scalar() or 0
 
-    # 班级平均分
+    # 按学科筛选作业和考试
+    hw_filter = [HomeworkSubmission.student_id.in_(student_ids_sub), HomeworkSubmission.is_deleted == False]
+    exam_filter = [ExamAttempt.student_id.in_(student_ids_sub), ExamAttempt.is_deleted == False]
+    if subject:
+        hw_filter.append(HomeworkSubmission.subject == subject)
+
+    total_homework = (await db.execute(select(func.count(HomeworkSubmission.id)).filter(*hw_filter))).scalar() or 0
+    total_exams = (await db.execute(select(func.count(ExamAttempt.id)).filter(*exam_filter))).scalar() or 0
+
+    # 按学科平均分
+    hw_score_filter = hw_filter + [HomeworkSubmission.status == "done"]
+    exam_score_filter = exam_filter + [ExamAttempt.status == "graded"]
+
     from sqlalchemy import union_all
     all_scores = union_all(
-        select(HomeworkSubmission.student_id.label("sid"), HomeworkSubmission.score.label("score")).filter(
-            HomeworkSubmission.student_id.in_(student_ids_sub), HomeworkSubmission.is_deleted == False, HomeworkSubmission.status == "done",
-        ),
-        select(ExamAttempt.student_id.label("sid"), ExamAttempt.score.label("score")).filter(
-            ExamAttempt.student_id.in_(student_ids_sub), ExamAttempt.is_deleted == False, ExamAttempt.status == "graded",
-        ),
+        select(HomeworkSubmission.student_id.label("sid"), HomeworkSubmission.score.label("score")).filter(*hw_score_filter),
+        select(ExamAttempt.student_id.label("sid"), ExamAttempt.score.label("score")).filter(*exam_score_filter),
     ).subquery()
     student_avg_sub = select(func.avg(all_scores.c.score).label("student_avg")).group_by(all_scores.c.sid).subquery()
     class_avg_row = (await db.execute(select(func.avg(student_avg_sub.c.student_avg)))).scalar()
     class_avg = round(float(class_avg_row), 1) if class_avg_row else 0
 
     # 知识点热力图
+    error_filter = [ErrorRecord.student_id.in_(student_ids_sub)]
+    if subject:
+        # 根据学科过滤知识点（通过知识点名称前缀匹配）
+        if subject == "chinese":
+            error_filter.append(ErrorRecord.knowledge_point.like("作文%") | ErrorRecord.knowledge_point.like("阅读%") |
+                                ErrorRecord.knowledge_point.like("语言运用%") | ErrorRecord.knowledge_point.like("字%") |
+                                ErrorRecord.knowledge_point.like("古诗词%") | ErrorRecord.knowledge_point.like("文言%"))
+        elif subject == "english":
+            error_filter.append(ErrorRecord.knowledge_point.like("英语-%"))
+
     errors = (await db.execute(
         select(ErrorRecord.knowledge_point, func.sum(ErrorRecord.error_count).label("total"), func.count(func.distinct(ErrorRecord.student_id)).label("students"))
-        .filter(ErrorRecord.student_id.in_(student_ids_sub))
+        .filter(*error_filter)
         .group_by(ErrorRecord.knowledge_point)
         .order_by(func.sum(ErrorRecord.error_count).desc())
     )).all()
@@ -233,6 +260,7 @@ async def get_teacher_dashboard(current_user=Depends(require_teacher), db: Async
     # 问题学生排行
     student_errors = (await db.execute(
         select(ErrorRecord.student_id, func.sum(ErrorRecord.error_count).label("total_errors"), func.count(ErrorRecord.knowledge_point).label("weak_points"))
+        .filter(*error_filter)
         .group_by(ErrorRecord.student_id)
         .order_by(func.sum(ErrorRecord.error_count).desc())
         .limit(10)

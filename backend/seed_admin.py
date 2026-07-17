@@ -25,16 +25,16 @@ ADMIN_NAME = "超级管理员"
 
 
 def _get_admin_password() -> str:
-    """从环境变量读取管理员密码；未设置时随机生成一次性密码并打印一次。"""
+    """从环境变量读取管理员密码；未设置时自动生成（仅首次创建时使用）。"""
     pwd = os.environ.get("ADMIN_PASSWORD", "").strip()
     if pwd:
         return pwd
-    # 自动生成一次性强密码，仅打印一次（开发友好）
+    # 自动生成一次性强密码（仅首次创建管理员时使用，后续重启不重置）
     return secrets.token_urlsafe(12)
 
 
 def seed_admin():
-    """确保管理员账号存在，启动时自动调用"""
+    """确保管理员账号存在，启动时自动调用。已有管理员时不会重置密码。"""
     init_db()
 
     db = SessionLocal()
@@ -52,6 +52,9 @@ def seed_admin():
                 existing.is_admin = True
                 db.commit()
                 logger.info(f"已升级 '{ADMIN_USERNAME}' 为管理员")
+            # 已有管理员且密码不为空，不重置密码
+            if existing.password_hash:
+                logger.info(f"管理员 '{ADMIN_USERNAME}' 已存在，跳过密码重置")
         else:
             admin_password = _get_admin_password()
             admin = Teacher(
@@ -67,8 +70,7 @@ def seed_admin():
             if not os.environ.get("ADMIN_PASSWORD"):
                 logger.warning(
                     f"⚠️ 管理员账号创建成功。用户名: {ADMIN_USERNAME}  临时密码: {admin_password}\n"
-                    f"   请立即登录修改密码！下次启动将生成新的临时密码。"
-                    f"   生产环境请通过 ADMIN_PASSWORD 环境变量固定密码。"
+                    f"   请立即登录修改密码！生产环境请通过 ADMIN_PASSWORD 环境变量固定密码。"
                 )
             else:
                 logger.info(f"管理员账号创建成功 (用户名: {ADMIN_USERNAME})")

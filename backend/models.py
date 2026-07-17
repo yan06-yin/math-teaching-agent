@@ -59,6 +59,7 @@ class HomeworkSubmission(Base):
     photo_url = Column(String(512), nullable=False)
     extracted_text = Column(Text, default="")
     student_answers = Column(Text, default="")
+    subject = Column(String(20), default="math")  # math / chinese / english
     correct_count = Column(Integer, default=0)
     total_count = Column(Integer, default=0)
     score = Column(Float, default=0)
@@ -137,6 +138,7 @@ class KnowledgePoint(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False)
     level = Column(String(10))  # 小学/初中/高中
+    subject = Column(String(20), default="math")  # math / chinese / english
     description = Column(Text, default="")
     related_points_json = Column(JSON, default=list)
 

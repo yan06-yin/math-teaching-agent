@@ -1,8 +1,8 @@
 """
-分析路由 — 学生画像、成绩趋势
+分析路由 — 学生画像、成绩趋势、跨学科分析
 使用异步 SQLAlchemy
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +20,7 @@ async def get_student_profile(
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取学生个人学习画像（只能查看自己的）"""
+    """获取学生个人学习画像（支持多学科）"""
     auth_student_id = current_user[0].id
     if student_id != auth_student_id:
         raise HTTPException(status_code=403, detail="只能查看自己的数据")
@@ -88,13 +88,9 @@ async def get_student_profile(
     )).scalars().all()
 
     weak_points = [e.knowledge_point for e in errors[:5]] if errors else []
-    # 优势知识点：错题记录中错误次数较低的知识点（仅错过 1 次，说明已基本掌握）
-    # 注意：系统当前未独立记录"做对的知识点"，此处基于错题做推断：
-    #       错过且只错过一次 → 视为已掌握。按 error_count 升序取前 5。
-    #       旧实现要求 len(errors) > 5 才返回，导致大多数学生没有优势知识点（bug），已修复。
     strong_points = [e.knowledge_point for e in errors if e.error_count <= 1][:5] if errors else []
 
-    # 趋势判断：比较前半段 vs 后半段，至少 2 条记录才判断
+    # 趋势判断
     scores = (await db.execute(
         select(HomeworkSubmission.score).filter(
             HomeworkSubmission.student_id == student_id,
@@ -140,7 +136,7 @@ async def get_score_trends(
         raise HTTPException(status_code=403, detail="只能查看自己的数据")
 
     homeworks = (await db.execute(
-        select(HomeworkSubmission.score, HomeworkSubmission.created_at).filter(
+        select(HomeworkSubmission.score, HomeworkSubmission.created_at, HomeworkSubmission.subject).filter(
             HomeworkSubmission.student_id == student_id,
             HomeworkSubmission.is_deleted == False,
             HomeworkSubmission.status == "done",
@@ -156,9 +152,150 @@ async def get_score_trends(
     )).all()
 
     all_scores = [
-        {"date": h[1].isoformat(), "score": h[0], "type": "homework"} for h in homeworks
+        {"date": h[1].isoformat(), "score": h[0], "type": "homework", "subject": h[2] or "math"}
+        for h in homeworks
     ] + [
-        {"date": e[1].isoformat(), "score": e[0], "type": "exam"} for e in exams
+        {"date": e[1].isoformat(), "score": e[0], "type": "exam", "subject": "math"} for e in exams
     ]
     all_scores.sort(key=lambda x: x["date"])
     return all_scores
+
+
+@router.get("/student/{student_id}/comprehensive")
+async def get_comprehensive_report(
+    student_id: int,
+    current_user=Depends(require_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取综合学情报告（跨学科）
+    返回各学科的平均分、薄弱点、趋势等
+    """
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
+    subjects = ["math", "chinese", "english"]
+    subject_names = {"math": "数学", "chinese": "语文", "english": "英语"}
+
+    report = {
+        "student_id": student_id,
+        "subjects": {},
+        "overall_avg": 0,
+    }
+
+    total_score_sum = 0
+    total_count = 0
+
+    for subject in subjects:
+        # 各学科平均分
+        hw_scores = (await db.execute(
+            select(HomeworkSubmission.score).filter(
+                HomeworkSubmission.student_id == student_id,
+                HomeworkSubmission.subject == subject,
+                HomeworkSubmission.status == "done",
+                HomeworkSubmission.is_deleted == False,
+                HomeworkSubmission.score > 0,
+            )
+        )).scalars().all()
+
+        scores_list = [s for s in hw_scores if s]
+        avg = round(sum(scores_list) / len(scores_list), 1) if scores_list else 0
+        total_score_sum += avg * len(scores_list)
+        total_count += len(scores_list)
+
+        # 各学科错题
+        errors = (await db.execute(
+            select(ErrorRecord).filter(
+                ErrorRecord.student_id == student_id,
+            ).order_by(ErrorRecord.error_count.desc())
+            .limit(10)
+        )).scalars().all()
+
+        # 按学科过滤知识点
+        from utils.knowledge_mapper import get_knowledge_info
+        subject_errors = []
+        for e in errors:
+            info = get_knowledge_info(e.knowledge_point, "", subject)
+            if info.get("tags") and any(subject in " ".join(info["tags"]).lower() for subject in ["math", "chinese", "english"]):
+                subject_errors.append({
+                    "point": e.knowledge_point,
+                    "count": e.error_count,
+                })
+
+        # 趋势
+        if len(scores_list) >= 3:
+            mid = len(scores_list) // 2
+            first_half = sum(scores_list[:mid]) / mid if mid > 0 else 0
+            second_half = sum(scores_list[mid:]) / (len(scores_list) - mid) if (len(scores_list) - mid) > 0 else 0
+            diff = second_half - first_half
+            trend = "rising" if diff > 5 else ("falling" if diff < -5 else "stable")
+        else:
+            trend = "stable"
+
+        report["subjects"][subject] = {
+            "name": subject_names.get(subject, subject),
+            "avg_score": avg,
+            "trend": trend,
+            "scores_count": len(scores_list),
+            "weak_points": subject_errors[:5],
+        }
+
+    report["overall_avg"] = round(total_score_sum / total_count, 1) if total_count > 0 else 0
+
+    # 跨学科分析洞察
+    try:
+        from services.knowledge_graph_service import knowledge_graph_service
+        await knowledge_graph_service.load_from_db(student_id, db)
+        cross_insights = knowledge_graph_service.get_cross_subject_insights(student_id)
+        report["cross_subject_insights"] = cross_insights
+    except Exception as e:
+        report["cross_subject_insights"] = []
+
+    return report
+
+
+@router.get("/student/{student_id}/knowledge-graph")
+async def get_knowledge_graph(
+    student_id: int,
+    current_user=Depends(require_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取学生知识图谱"""
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
+    try:
+        from services.knowledge_graph_service import knowledge_graph_service
+        graph = await knowledge_graph_service.load_from_db(student_id, db)
+        return graph.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"知识图谱加载失败: {e}")
+
+
+@router.get("/student/{student_id}/learning-path")
+async def get_learning_path(
+    student_id: int,
+    subject: str = Query("math", regex="^(math|chinese|english)$"),
+    current_user=Depends(require_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取学习路径推荐"""
+    auth_student_id = current_user[0].id
+    if student_id != auth_student_id:
+        raise HTTPException(status_code=403, detail="只能查看自己的数据")
+
+    try:
+        from services.knowledge_graph_service import knowledge_graph_service
+        await knowledge_graph_service.load_from_db(student_id, db)
+
+        weak_points = knowledge_graph_service.get_weak_points(student_id, subject=subject, top_n=5)
+        return {
+            "student_id": student_id,
+            "subject": subject,
+            "weak_points": weak_points,
+            "learning_path": weak_points,  # 薄弱点本身就是学习路径
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"学习路径生成失败: {e}")

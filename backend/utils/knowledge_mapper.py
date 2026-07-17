@@ -72,8 +72,74 @@ ELEMENTARY_KNOWLEDGE = {
     "数据统计与图表": ["小学-统计与概率"],
 }
 
+# 语文学科知识点
+CHINESE_KNOWLEDGE = {
+    # 作文
+    "作文-写作": ["语文-作文", "初中"],
+    "作文-记叙文": ["语文-作文", "初中"],
+    "作文-议论文": ["语文-作文", "初中"],
+    "作文-说明文": ["语文-作文", "初中"],
+    "作文-散文": ["语文-作文", "初中"],
+    # 阅读
+    "现代文阅读": ["语文-阅读", "初中"],
+    "文言文阅读": ["语文-阅读", "初中"],
+    "古诗词鉴赏": ["语文-阅读", "初中"],
+    "名著阅读": ["语文-阅读", "初中"],
+    # 语言运用
+    "语言运用-病句修改": ["语文-语言运用", "初中"],
+    "语言运用-成语": ["语文-语言运用", "初中"],
+    "语言运用-修辞手法": ["语文-语言运用", "初中"],
+    "语言运用-句式转换": ["语文-语言运用", "初中"],
+    # 基础知识
+    "字音字形": ["语文-基础", "初中"],
+    "词语理解": ["语文-基础", "初中"],
+    "文学常识": ["语文-基础", "初中"],
+    "古诗文默写": ["语文-基础", "初中"],
+}
+
+# 英语学科知识点
+ENGLISH_KNOWLEDGE = {
+    # 时态
+    "英语-时态": ["英语-语法", "初中"],
+    "英语-时态-一般现在时": ["英语-语法", "初中"],
+    "英语-时态-一般过去时": ["英语-语法", "初中"],
+    "英语-时态-一般将来时": ["英语-语法", "初中"],
+    "英语-时态-现在进行时": ["英语-语法", "初中"],
+    "英语-时态-过去进行时": ["英语-语法", "初中"],
+    "英语-时态-现在完成时": ["英语-语法", "初中"],
+    "英语-时态-过去完成时": ["英语-语法", "初中"],
+    # 语态
+    "英语-语态-被动语态": ["英语-语法", "初中"],
+    "英语-语态-主动语态": ["英语-语法", "初中"],
+    # 从句
+    "英语-从句": ["英语-语法", "初中"],
+    "英语-从句-定语从句": ["英语-语法", "初中"],
+    "英语-从句-状语从句": ["英语-语法", "初中"],
+    "英语-从句-名词性从句": ["英语-语法", "初中"],
+    # 非谓语动词
+    "英语-非谓语动词": ["英语-语法", "初中"],
+    "英语-非谓语动词-不定式": ["英语-语法", "初中"],
+    "英语-非谓语动词-动名词": ["英语-语法", "初中"],
+    "英语-非谓语动词-分词": ["英语-语法", "初中"],
+    # 词汇
+    "英语-词汇": ["英语-词汇", "初中"],
+    "英语-词汇-词义辨析": ["英语-词汇", "初中"],
+    "英语-词汇-短语搭配": ["英语-词汇", "初中"],
+    # 写作
+    "英语-写作": ["英语-写作", "初中"],
+    "英语-写作-书信": ["英语-写作", "初中"],
+    "英语-写作-议论文": ["英语-写作", "初中"],
+    "英语-写作-记叙文": ["英语-写作", "初中"],
+    # 题型
+    "英语-完形填空": ["英语-题型", "初中"],
+    "英语-阅读理解": ["英语-题型", "初中"],
+    "英语-语法填空": ["英语-题型", "初中"],
+    "英语-短文改错": ["英语-题型", "初中"],
+}
+
 # 知识点名称 → 标准名称的映射（OCR/LLM 可能输出多种说法）
 KNOWLEDGE_ALIAS_MAP = {
+    # === 数学 ===
     # 一元二次方程
     "一元二次方程": "一元二次方程",
     "二次方程": "一元二次方程",
@@ -100,11 +166,37 @@ KNOWLEDGE_ALIAS_MAP = {
     "导数": "导数及其应用",
     "立体几何": "立体几何",
     "解析几何": "解析几何",
+    # === 语文 ===
+    "作文": "作文-写作",
+    "记叙文": "作文-记叙文",
+    "议论文": "作文-议论文",
+    "说明文": "作文-说明文",
+    "散文": "作文-散文",
+    "阅读理解": "现代文阅读",
+    "古诗词": "古诗词鉴赏",
+    "文言文": "文言文阅读",
+    "病句": "语言运用-病句修改",
+    "成语": "语言运用-成语",
+    "修辞": "语言运用-修辞手法",
+    # === 英语 ===
+    "时态": "英语-时态",
+    "一般过去时": "英语-时态-一般过去时",
+    "现在完成时": "英语-时态-现在完成时",
+    "一般现在时": "英语-时态-一般现在时",
+    "被动语态": "英语-语态-被动语态",
+    "从句": "英语-从句",
+    "定语从句": "英语-从句-定语从句",
+    "状语从句": "英语-从句-状语从句",
+    "名词性从句": "英语-从句-名词性从句",
+    "非谓语": "英语-非谓语动词",
+    "写作": "英语-写作",
+    "完形填空": "英语-完形填空",
+    "阅读理解_英": "英语-阅读理解",
 }
 
 
-def normalize_knowledge_point(point: str) -> str:
-    """标准化知识点名称"""
+def normalize_knowledge_point(point: str, subject: str = "math") -> str:
+    """标准化知识点名称，支持多学科"""
     # 先检查别名
     lower = point.strip().lower()
     for alias, standard in KNOWLEDGE_ALIAS_MAP.items():
@@ -112,7 +204,16 @@ def normalize_knowledge_point(point: str) -> str:
             return standard
 
     # 检查知识库
-    all_knowledge = {**MIDDLE_SCHOOL_KNOWLEDGE, **HIGH_SCHOOL_KNOWLEDGE, **ELEMENTARY_KNOWLEDGE}
+    all_knowledge = {}
+    if subject == "math":
+        all_knowledge = {**MIDDLE_SCHOOL_KNOWLEDGE, **HIGH_SCHOOL_KNOWLEDGE, **ELEMENTARY_KNOWLEDGE}
+    elif subject == "chinese":
+        all_knowledge = CHINESE_KNOWLEDGE
+    elif subject == "english":
+        all_knowledge = ENGLISH_KNOWLEDGE
+    else:
+        all_knowledge = {**MIDDLE_SCHOOL_KNOWLEDGE, **HIGH_SCHOOL_KNOWLEDGE, **ELEMENTARY_KNOWLEDGE}
+
     for key in all_knowledge:
         if key in lower or lower in key:
             return key
@@ -120,9 +221,13 @@ def normalize_knowledge_point(point: str) -> str:
     return point.strip()
 
 
-def get_knowledge_info(point: str, level: str = "初中") -> dict:
-    """获取知识点详细信息"""
-    if level == "高中":
+def get_knowledge_info(point: str, level: str = "初中", subject: str = "math") -> dict:
+    """获取知识点详细信息，支持多学科"""
+    if subject == "chinese":
+        info = CHINESE_KNOWLEDGE.get(point)
+    elif subject == "english":
+        info = ENGLISH_KNOWLEDGE.get(point)
+    elif level == "高中":
         info = HIGH_SCHOOL_KNOWLEDGE.get(point)
     elif level == "小学":
         info = ELEMENTARY_KNOWLEDGE.get(point)

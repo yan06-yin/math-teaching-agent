@@ -357,11 +357,84 @@ class OpenModelService:
         ]
         return await self._chat(messages)
 
-    async def generate_exam(self, school_level: str, config: dict) -> dict:
-        """根据配置生成试卷（出题用较长超时 + 快速降级）"""
+    async def grade_subject_homework(self, student_name: str, school_level: str,
+                                      subject: str, questions_and_answers: str = "",
+                                      image_base64: str = "", extra_context: str = "") -> dict:
+        """
+        按学科批改作业（支持多学科）
+        subject: math / chinese / english
+        """
+        from services.grading_engine import get_subject_prompts, Subject, parse_grading_result
+
+        try:
+            subject_enum = Subject(subject)
+        except ValueError:
+            logger.warning(f"不支持的学科: {subject}，默认使用数学")
+            subject_enum = Subject.MATH
+
+        prompts = get_subject_prompts(subject_enum)
+
+        if image_base64:
+            # 多模态批改（强制使用 Agnes Flash）
+            prompt = prompts.image_grading_prompt(student_name, school_level, extra_context)
+            json_example = json.dumps(prompts.json_output_example(), ensure_ascii=False)
+
+            system_msg = prompts.system_prompt()
+
+            messages = [
+                {"role": "system", "content": system_msg},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                    ]
+                },
+            ]
+
+            try:
+                result = await self._chat_with_fallback(messages, max_tokens=4096,
+                                                         force_model="agnes-2.0-flash", is_retry=False)
+                parsed = parse_grading_result(result, subject_enum)
+                return {"score": parsed.score, "comments": parsed.comments,
+                        "details": parsed.details, "correct_count": parsed.correct_count,
+                        "total_count": parsed.total_count, "subject": subject}
+            except Exception as e:
+                logger.error(f"多模态批改失败 (subject={subject}): {e}")
+                if not questions_and_answers:
+                    questions_and_answers = f"学生上传了作业图片，但识别失败。请给出一般性评语。错误: {e}"
+                # 降级到纯文本
+                return await self._grade_subject_text(student_name, school_level,
+                                                       subject_enum, questions_and_answers, prompts)
+        else:
+            return await self._grade_subject_text(student_name, school_level,
+                                                   subject_enum, questions_and_answers, prompts)
+
+    async def _grade_subject_text(self, student_name: str, school_level: str,
+                                    subject_enum, questions_and_answers: str,
+                                    prompts) -> dict:
+        """按学科纯文本批改"""
+        prompt = prompts.grading_prompt(student_name, school_level, questions_and_answers)
+        messages = [
+            {"role": "system", "content": prompts.system_prompt()},
+            {"role": "user", "content": prompt},
+        ]
+        result = await self._chat(messages)
+        parsed = parse_grading_result(result, subject_enum)
+        return {"score": parsed.score, "comments": parsed.comments,
+                "details": parsed.details, "correct_count": parsed.correct_count,
+                "total_count": parsed.total_count, "subject": subject_enum.value}
+
+    async def generate_exam(self, school_level: str, config: dict, subject: str = "math") -> dict:
+        """根据配置生成试卷（出题用较长超时 + 快速降级）
+        subject: math / chinese / english
+        """
+        subject_name = {"math": "数学", "chinese": "语文", "english": "英语"}.get(subject, "数学")
+        subject_en = subject
+
         points_str = "、".join(config.get("knowledge_points", [])) or "综合"
         question_count = config.get("question_count", 10)
-        with_images = config.get("with_images", True)
+        with_images = config.get("with_images", True) and subject == "math"
 
         question_example = {
             "id": 1,
@@ -372,32 +445,40 @@ class OpenModelService:
             "explanation": "解析",
         }
         if with_images:
-            # image_svg = AI 内联 SVG，image_prompt = 给图片生成 API 的描述词
             question_example["image_svg"] = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">...</svg>'
-            question_example["image_prompt"] = "A clear geometric diagram showing a right triangle with labeled sides a, b, c"
+            question_example["image_prompt"] = "A clear geometric diagram..."
 
         json_example = json.dumps({
-            "title": "数学测试",
+            "title": f"{subject_name}测试",
             "questions": [question_example]
         }, ensure_ascii=False)
+
+        # 学科专属出题指引
+        subject_guides = {
+            "math": "数学题应包含计算、证明、应用等类型，几何题可配SVG图。",
+            "chinese": "语文题可包含阅读理解、古诗词鉴赏、作文等题型。作文题需要给出题目和要求，不需要配图。",
+            "english": "英语题可包含语法填空、阅读理解、写作等题型。写作题需要给出题目和要求。",
+        }
+        subject_guide = subject_guides.get(subject, subject_guides["math"])
 
         image_instruction = """
 - **需要配图的题目**请同时输出两个字段：
   - `image_svg`: 内联 SVG 代码（几何/函数/统计题必须有）
-  - `image_prompt`: 一段英文描述词，描述这张数学插图的样子，用于 AI 图片模型生成真正的图片
+  - `image_prompt`: 一段英文描述词，描述这张数学插图的样子
 - 以下题型应配图：
   - 几何题：三角形、圆、坐标系等示意图
-  - 函数题：坐标系 + 函数图像（抛物线、直线等）
+  - 函数题：坐标系 + 函数图像
   - 统计题：柱状图、折线图
-  - 分数/数轴题：数轴、面积模型图
-- SVG 放在 `<svg>` 标签内，标注 `width="400" height="300"`，用有颜色的图形元素
-- image_prompt 要详细描述视觉元素：颜色、标注、图形形状、坐标轴等""" if with_images else ""
+- SVG 放在 `<svg>` 标签内，标注 `width="400" height="300"`，用有颜色的图形元素""" if with_images else ""
 
-        prompt = f"""你是数学教师，请生成 {question_count} 道数学题。
+        prompt = f"""你是{subject_name}教师，请生成 {question_count} 道{subject_name}题。
 
 学段：{school_level}
 重点知识点：{points_str}
 难度：{config.get("difficulty", 3)}/5
+
+出题指导：
+{subject_guide}
 {image_instruction}
 
 直接返回纯 JSON（不要使用 markdown 代码块），格式如下：
@@ -408,8 +489,12 @@ class OpenModelService:
 - 每道题都要有答案和解析
 - 围绕 {points_str} 出题
 """
+        system_content = f"你是一位专业的{subject_name}教师。必须返回纯 JSON 格式，不要用 markdown。"
+        if with_images:
+            system_content += " SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素。同时为需要配图的题提供 `image_prompt` 英文描述词。"
+
         messages = [
-            {"role": "system", "content": "你是一位专业的数学教师。必须返回纯 JSON 格式，不要用 markdown。" + (" SVG 图形要包含在 `image_svg` 字段中，用有颜色填充的图形元素。同时为需要配图的题提供 `image_prompt` 英文描述词。" if with_images else "")},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ]
         return await self._chat(messages, max_tokens=4096, timeout=180.0)

@@ -3,6 +3,7 @@
 使用异步 SQLAlchemy
 """
 import asyncio
+import imghdr
 import os
 import uuid
 import logging
@@ -17,6 +18,7 @@ from database import get_db, AsyncSessionLocal
 from models import Student, HomeworkSubmission, GradingTask, ErrorRecord
 from config import settings
 from utils.auth import require_student
+from services.grading_engine import Subject, get_subject_prompts
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,8 +54,12 @@ async def _run_grading_background(grading_task_id: int):
             student = await bg_db.get(Student, task.student_id)
             school_level = student.school_level if student else "初中"
             student_name = student.name if student else f"学生{task.student_id}"
+            student_id = task.student_id
 
-            # 读取图片转为 base64（文件 I/O 用线程池避免阻塞）
+            # 获取学科
+            subject = submission.subject or "math"
+
+            # 读取图片转为 base64
             photo_local_path = submission.photo_url
             if photo_local_path.startswith("/uploads/"):
                 photo_local_path = os.path.join(settings.UPLOAD_DIR, os.path.basename(photo_local_path))
@@ -66,53 +72,126 @@ async def _run_grading_background(grading_task_id: int):
                 logger.error(f"读取图片失败: {e}")
 
             from services.open_model_service import open_model_service
-            current_model = open_model_service.model.lower()
-            supports_vision = "agnes" in current_model or "gpt" in current_model or "claude" in current_model or "gemini" in current_model or "qwen" in current_model
 
-            if supports_vision:
-                result = await open_model_service.grade_homework_with_image(
-                    student_name=student_name, school_level=school_level, image_base64=image_base64,
-                )
-            else:
-                result = await open_model_service.grade_homework(
-                    student_name=student_name, school_level=school_level,
-                    questions_and_answers=f"学生作业图片已上传。请根据以下信息批改：\n学生：{student_name}\n学段：{school_level}",
-                )
+            # === Step 1: 学科自适应基础评分 ===
+            result = await open_model_service.grade_subject_homework(
+                student_name=student_name,
+                school_level=school_level,
+                subject=subject,
+                image_base64=image_base64,
+                student_answers=submission.student_answers or "",
+            )
 
-            submission.score = float(result.get("score", 0))
+            base_score = float(result.get("score", 0))
+            base_comments = result.get("comments", "")
+            details = result.get("details", [])
+
+            # === Step 2: 步骤级过程分（增强评分） ===
+            try:
+                from services.step_grader import create_step_grader
+                step_grader = create_step_grader(open_model_service)
+                # 如果有错题，对第一道错题做步骤级评分（作为代表）
+                step_result = None
+                for wrong in details:
+                    if not wrong.get("correct", True):
+                        step_result = await step_grader.grade_with_steps(
+                            question=wrong.get("question", ""),
+                            student_answer=wrong.get("student_answer", ""),
+                            correct_answer=wrong.get("correct_answer", ""),
+                            subject=subject,
+                            student_name=student_name,
+                            school_level=school_level,
+                        )
+                        if step_result and step_result.get("steps"):
+                            wrong["step_analysis"] = step_result["steps"]
+                            wrong["process_score"] = step_result.get("process_score", 0)
+                        break  # 只分析第一道错题作为示例
+            except Exception as e:
+                logger.warning(f"步骤级评分未生效: {e}")
+                step_result = None
+
+            # === Step 3: 个性化评语 ===
+            try:
+                from services.comment_generator import create_comment_generator
+                from utils.student_portrait import StudentPortraitBuilder
+
+                # 构建学生画像
+                portrait_builder = StudentPortraitBuilder(bg_db)
+                portrait = await portrait_builder.build_portrait(student_id, student_name, school_level)
+                portrait_dict = portrait.to_dict()
+
+                # 获取历史平均分
+                avg_score = portrait.avg_scores.get(subject, 70)
+
+                comment_gen = create_comment_generator(open_model_service)
+                personalized_comment = await comment_gen.generate(
+                    student_name=student_name,
+                    school_level=school_level,
+                    subject=subject,
+                    score=base_score,
+                    comments=base_comments,
+                    mistakes=details,
+                    student_portrait=portrait_dict,
+                    avg_score=avg_score,
+                )
+                final_comments = personalized_comment
+            except Exception as e:
+                logger.warning(f"个性化评语生成未生效，使用原始评语: {e}")
+                final_comments = base_comments
+
+            # === Step 4: 保存评分结果 ===
+            submission.score = base_score
             submission.correct_count = int(result.get("correct_count", 0))
             submission.total_count = int(result.get("total_count", 0))
-            submission.comments = result.get("comments", "")
-            submission.wrong_questions_json = result.get("details", [])
+            submission.comments = final_comments
+            submission.wrong_questions_json = details
             submission.status = "done"
             await bg_db.commit()
 
-            # 更新错题记录
+            # === Step 5: 更新错题记录 + 知识图谱 ===
             from utils.knowledge_mapper import normalize_knowledge_point
-            for wrong in (result.get("details") or []):
+            from services.knowledge_graph_service import knowledge_graph_service
+
+            # 加载该学生的知识图谱
+            kg = await knowledge_graph_service.load_from_db(student_id, bg_db)
+
+            for wrong in (details or []):
                 if not wrong.get("correct", True):
-                    kp = normalize_knowledge_point(wrong.get("question", "未知知识点"))
+                    kp = normalize_knowledge_point(wrong.get("question", "未知知识点"), subject)
+                    # 数据库错题记录
                     existing = (await bg_db.execute(
-                        select(ErrorRecord).filter(ErrorRecord.student_id == task.student_id, ErrorRecord.knowledge_point == kp)
+                        select(ErrorRecord).filter(
+                            ErrorRecord.student_id == student_id,
+                            ErrorRecord.knowledge_point == kp,
+                        )
                     )).scalar_one_or_none()
                     if existing:
                         existing.error_count += 1
                         existing.last_error_date = datetime.now(timezone.utc)
                     else:
                         bg_db.add(ErrorRecord(
-                            student_id=task.student_id, knowledge_point=kp,
+                            student_id=student_id, knowledge_point=kp,
                             question_text=wrong.get("question", ""),
                             student_answer=wrong.get("student_answer", ""),
                             correct_answer=wrong.get("correct_answer", ""),
                         ))
+                    # 知识图谱记录
+                    kg.record_error(kp, subject=subject, level=school_level)
+                else:
+                    # 记录正确的知识点
+                    kp = normalize_knowledge_point(wrong.get("question", "未知知识点"), subject)
+                    if kp:
+                        kg.record_correct(kp, subject=subject)
+
             await bg_db.commit()
 
             task.result_json = {
-                "score": result.get("score", 0),
+                "score": base_score,
                 "correct_count": result.get("correct_count", 0),
                 "total_count": result.get("total_count", 0),
-                "comments": result.get("comments", ""),
-                "wrong_questions": result.get("details") or [],
+                "comments": final_comments,
+                "wrong_questions": details,
+                "subject": subject,
             }
             task.status = "done"
             task.completed_at = datetime.now(timezone.utc)
@@ -146,14 +225,27 @@ def _spawn_background_task(coro):
 async def upload_homework(
     file: UploadFile = File(...),
     student_answers: str = "",
+    subject: str = "math",
     current_user=Depends(require_student),
     db: AsyncSession = Depends(get_db),
 ):
-    """上传作业照片 → 立即返回 task_id，后台异步批改"""
+    """上传作业照片 → 立即返回 task_id，后台异步批改
+    subject: math / chinese / english，默认数学
+    """
     student_id = current_user[0].id
     student = await db.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 校验学科
+    if subject not in ("math", "chinese", "english"):
+        subject = "math"
+
+    # 校验文件类型（仅允许图片）
+    if file.content_type:
+        allowed_mimes = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"}
+        if file.content_type not in allowed_mimes:
+            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file.content_type}，仅支持 JPG/PNG/WebP/GIF")
 
     ext = os.path.splitext(file.filename or "")[1] or ".jpg"
     filename = f"{uuid.uuid4().hex}{ext}"
@@ -175,6 +267,7 @@ async def upload_homework(
         student_id=student_id,
         photo_url=f"/uploads/{filename}",
         student_answers=student_answers,
+        subject=subject,
         status="pending",
     )
     db.add(submission)
@@ -196,6 +289,7 @@ async def upload_homework(
     return {
         "task_id": grading_task.id,
         "submission_id": submission.id,
+        "subject": subject,
         "status": "pending",
         "message": "作业已上传，正在批改中",
     }
@@ -227,7 +321,7 @@ async def get_grading_status(
         return {"status": submission.status, "done": submission.status == "done"}
 
     if task.status == "done" and task.result_json:
-        return {"status": "done", "result": task.result_json, "submission_id": submission.id}
+        return {"status": "done", "result": task.result_json, "submission_id": submission.id, "subject": submission.subject or "math"}
     elif task.status == "error":
         return {"status": "error", "error": task.error_message}
     else:
@@ -248,7 +342,7 @@ async def my_homework(
         .order_by(HomeworkSubmission.created_at.desc())
         .offset(offset).limit(limit)
     )).scalars().all()
-    return [{"id": s.id, "photo_url": s.photo_url, "score": s.score, "correct_count": s.correct_count, "total_count": s.total_count, "comments": s.comments, "status": s.status, "created_at": s.created_at.isoformat()} for s in submissions]
+    return [{"id": s.id, "photo_url": s.photo_url, "score": s.score, "correct_count": s.correct_count, "total_count": s.total_count, "comments": s.comments, "subject": s.subject or "math", "status": s.status, "created_at": s.created_at.isoformat()} for s in submissions]
 
 
 @router.get("/{submission_id}/result")
@@ -271,5 +365,6 @@ async def homework_result(
         "id": submission.id, "photo_url": submission.photo_url, "score": submission.score,
         "correct_count": submission.correct_count, "total_count": submission.total_count,
         "comments": submission.comments, "wrong_questions": submission.wrong_questions or [],
+        "subject": submission.subject or "math",
         "status": submission.status, "created_at": submission.created_at.isoformat(),
     }

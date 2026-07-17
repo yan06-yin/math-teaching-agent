@@ -14,8 +14,8 @@ from utils.knowledge_mapper import normalize_knowledge_point
 logger = logging.getLogger(__name__)
 
 
-async def generate_and_save_exam(db: AsyncSession, student_id: int, config: dict, exam_id=None) -> ExamAttempt:
-    """生成试卷并保存"""
+async def generate_and_save_exam(db: AsyncSession, student_id: int, config: dict, exam_id=None, subject: str = "math") -> ExamAttempt:
+    """生成试卷并保存，支持多学科"""
     errors = (await db.execute(
         select(ErrorRecord).filter(ErrorRecord.student_id == student_id)
         .order_by(ErrorRecord.error_count.desc()).limit(10)
@@ -23,14 +23,18 @@ async def generate_and_save_exam(db: AsyncSession, student_id: int, config: dict
 
     weak_points = [e.knowledge_point for e in errors if e.error_count >= 2]
     all_points = list(set(config.get("knowledge_points", []) + weak_points))
-    exam_config = {**config, "knowledge_points": all_points[:5]}
+    exam_config = {**config, "knowledge_points": all_points[:5], "subject": subject}
 
     try:
         open_model_service.reload_from_db()
-        result = await open_model_service.generate_exam(school_level=config.get("school_level", "初中"), config=exam_config)
+        result = await open_model_service.generate_exam(
+            school_level=config.get("school_level", "初中"),
+            config=exam_config,
+            subject=subject,
+        )
         questions = result.get("questions", [])
 
-        if config.get("with_images", True) and questions:
+        if config.get("with_images", True) and questions and subject == "math":
             try:
                 questions = await generate_exam_images(questions)
             except Exception as e:
@@ -64,8 +68,8 @@ async def generate_and_save_exam(db: AsyncSession, student_id: int, config: dict
         raise
 
 
-async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[ExamAttempt, list]:
-    """批改考试"""
+async def grade_exam(db: AsyncSession, exam_id: int, answers: list, subject: str = "math") -> tuple[ExamAttempt, list]:
+    """批改考试，支持多学科"""
     exam = await db.get(ExamAttempt, exam_id)
     if not exam:
         raise ValueError(f"考试记录不存在: exam_id={exam_id}")
@@ -77,9 +81,11 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
         questions_str = "\n".join(f"Q{i+1}: {q.get('question','')}\n答案: {q.get('answer','')}" for i, q in enumerate(exam.questions_json))
         answers_str = "\n".join(f"Q{i+1}: {a.get('answer','')}" for i, a in enumerate(answers))
 
-        result = await open_model_service.grade_homework(
+        # 使用学科自适应评分
+        result = await open_model_service.grade_subject_homework(
             student_name=student.name if student else f"学生{exam.student_id}",
             school_level=student.school_level if student else "初中",
+            subject=subject,
             questions_and_answers=f"题目:\n{questions_str}\n\n学生答案:\n{answers_str}",
         )
 
@@ -90,8 +96,10 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
         correct_count = sum(1 for d in details if d.get("correct"))
         wrong_details = [d for d in details if not d.get("correct")]
 
+        subject_name = {"math": "数学", "chinese": "语文", "english": "英语"}.get(subject, "综合")
+
         report_parts = [
-            f"📊 诊断分析报告", "",
+            f"📊 {subject_name}诊断分析报告", "",
             f"得分：{exam.score}分（共{len(details)}题，正确{correct_count}题，错误{len(wrong_details)}题）",
             "", f"📝 教师评语：", f"{result.get('comments', '')}",
         ]
@@ -109,10 +117,13 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
         exam.diagnostic_report = json.dumps("\n".join(report_parts), ensure_ascii=False)
         await db.commit()
 
-        # 更新错题记录
+        # 更新错题记录 + 知识图谱
+        from services.knowledge_graph_service import knowledge_graph_service
+        kg = await knowledge_graph_service.load_from_db(exam.student_id, db)
+
         for detail in details:
             if not detail.get("correct", True):
-                kp = normalize_knowledge_point(detail.get("question", "未分类")[:50])
+                kp = normalize_knowledge_point(detail.get("question", "未分类")[:50], subject)
                 existing = (await db.execute(
                     select(ErrorRecord).filter(ErrorRecord.student_id == exam.student_id, ErrorRecord.knowledge_point == kp)
                 )).scalar_one_or_none()
@@ -126,8 +137,11 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
                         student_answer=detail.get("student_answer", ""),
                         correct_answer=detail.get("correct_answer", ""),
                     ))
+                kg.record_error(kp, subject=subject, level=student.school_level if student else "初中")
+
         await db.commit()
 
+        # 生成学习计划（使用学科感知的提示词）
         weak_points = []
         if details:
             weak_points = [d.get("explanation", d.get("question", "未分类")) for d in details if not d.get("correct", True)]
@@ -149,7 +163,6 @@ async def grade_exam(db: AsyncSession, exam_id: int, answers: list) -> tuple[Exa
 
     except Exception as e:
         logger.error(f"考试批改失败: {e}", exc_info=True)
-        # 标记考试状态为 error，避免学生看到永远"批改中"
         try:
             exam = await db.get(ExamAttempt, exam_id)
             if exam:

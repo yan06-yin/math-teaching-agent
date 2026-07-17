@@ -1,9 +1,17 @@
 """
 Pydantic 请求/响应模型
 """
+from enum import Enum
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+
+
+class Subject(str, Enum):
+    """支持的学科"""
+    MATH = "math"
+    CHINESE = "chinese"
+    ENGLISH = "english"
 
 
 # ===== 认证 =====
@@ -63,6 +71,7 @@ class TokenResponse(BaseModel):
 class HomeworkUpload(BaseModel):
     photo_url: str
     student_answers: str = ""
+    subject: Subject = Subject.MATH  # 新增：学科，默认数学
 
 
 class HomeworkResult(BaseModel):
@@ -74,6 +83,7 @@ class HomeworkResult(BaseModel):
     comments: str
     wrong_questions: list
     status: str
+    subject: str = "math"  # 新增
     created_at: datetime
 
 

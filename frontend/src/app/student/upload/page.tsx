@@ -7,6 +7,7 @@ export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
+  const [subject, setSubject] = useState("math");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [statusMsg, setStatusMsg] = useState("");
@@ -41,6 +42,7 @@ export default function UploadPage() {
       const fd = new FormData();
       if (file) fd.append("file", file);
       if (manualInput.trim()) fd.append("student_answers", manualInput);
+      fd.append("subject", subject);
       const token = localStorage.getItem("token");
       const res = await axios.post(`/api/homework/upload`, fd, {
         headers: { Authorization: `Bearer ${token}` },
@@ -89,6 +91,22 @@ export default function UploadPage() {
         {!result ? (
           <>
             <div className="card mb-6">
+              <h3 className="font-semibold mb-4">选择学科</h3>
+              <div className="flex gap-3">
+                {[
+                  { id: 'math', label: '数学', icon: '📐', color: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                  { id: 'chinese', label: '语文', icon: '📝', color: 'bg-green-50 border-green-200 text-green-700' },
+                  { id: 'english', label: '英语', icon: '🔤', color: 'bg-amber-50 border-amber-200 text-amber-700' },
+                ].map(s => (
+                  <button key={s.id} onClick={() => setSubject(s.id)}
+                    className={`flex-1 py-3 px-4 rounded-xl border-2 text-center transition-all ${subject === s.id ? `${s.color} border-current font-semibold scale-105 shadow-sm` : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                    <div className="text-2xl mb-1">{s.icon}</div>
+                    <div className="text-sm">{s.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="card mb-6">
               <h3 className="font-semibold mb-4">上传作业照片</h3>
               <div className="border-2 border-dashed rounded-xl p-12 text-center border-gray-200">
                 <div className="text-4xl mb-3">📷</div>
@@ -117,9 +135,40 @@ export default function UploadPage() {
           </>
         ) : (
           <div className="space-y-6">
-            <div className="card"><h3 className="font-semibold text-lg mb-4">批改结果</h3><div className="text-4xl font-bold text-center text-[#6366f1] mb-4">{result.score}分</div>{result.total_count > 0 && <p className="text-center text-sm text-gray-500 mb-2">正确 {result.correct_count}/{result.total_count} 题</p>}{result.comments && <div className="p-4 bg-[#eef2ff] rounded-lg mb-4"><p className="text-indigo-800">{result.comments}</p></div>}</div>
+            <div className="card">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-lg">批改结果</h3>
+                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-500">
+                  {result.subject === 'chinese' ? '📝 语文' : result.subject === 'english' ? '🔤 英语' : '📐 数学'}
+                </span>
+              </div>
+              <div className="text-4xl font-bold text-center text-[#6366f1] mb-4">{result.score}分</div>
+              {(result.total_count ?? 0) > 0 && <p className="text-center text-sm text-gray-500 mb-2">正确 {result.correct_count}/{result.total_count} 题</p>}
+              {result.comments && <div className="p-4 bg-[#eef2ff] rounded-lg mb-4"><p className="text-indigo-800">{result.comments}</p></div>}
+            </div>
             {result.wrong_questions?.filter((q: any) => !q.correct).map((q: any, i: number) => (
-              <div key={i} className="card p-4 bg-red-50"><div className="font-medium mb-1">{q.question}</div>{q.student_answer && <div className="text-sm text-red-600">你的答案：{q.student_answer}</div>}{q.correct_answer && <div className="text-sm text-green-600">正确答案：{q.correct_answer}</div>}{q.explanation && <div className="text-sm text-gray-700 mt-2">💡 {q.explanation}</div>}</div>
+              <div key={i} className="card p-4 bg-red-50">
+                <div className="font-medium mb-1">{q.question}</div>
+                {q.student_answer && <div className="text-sm text-red-600">你的答案：{q.student_answer}</div>}
+                {q.correct_answer && <div className="text-sm text-green-600">正确答案：{q.correct_answer}</div>}
+                {q.explanation && <div className="text-sm text-gray-700 mt-2">💡 {q.explanation}</div>}
+                {/* 步骤级过程分展示 */}
+                {q.step_analysis && q.step_analysis.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-red-200">
+                    <div className="text-xs font-semibold text-gray-500 mb-2">📋 步骤分析</div>
+                    {q.step_analysis.map((step: any, si: number) => (
+                      <div key={si} className={`flex items-center gap-2 text-xs py-1 ${step.status === 'correct' ? 'text-green-700' : step.status === 'partial' ? 'text-amber-700' : 'text-red-700'}`}>
+                        <span>{step.status === 'correct' ? '✅' : step.status === 'partial' ? '⚠️' : '❌'}</span>
+                        <span className="flex-1">{step.description}</span>
+                        {step.feedback && <span className="text-gray-400">({step.feedback})</span>}
+                      </div>
+                    ))}
+                    {q.process_score !== undefined && (
+                      <div className="text-xs text-gray-400 mt-1">过程分：{q.process_score}分</div>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
             <Link href="/student/dashboard" className="btn-secondary w-full block text-center">返回主页</Link>
           </div>
