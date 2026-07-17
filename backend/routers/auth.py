@@ -93,10 +93,11 @@ async def register(body: StudentRegister, request: Request, db: AsyncSession = D
     """学生注册（姓名+学号+密码+可选邀请码）"""
     # 速率限制：注册 10次/分钟
     try:
-        from main import limiter, HAS_RATE_LIMIT
-        if HAS_RATE_LIMIT:
-            await limiter.limit(request, "10/minute")
-    except (ImportError, Exception):
+        from fastapi import FastAPI
+        app = request.app
+        if hasattr(app.state, "limiter"):
+            await app.state.limiter.limit(request, "10/minute")
+    except Exception:
         pass
     try:
         existing = (await db.execute(
@@ -183,10 +184,9 @@ async def login(body: StudentLogin, request: Request, db: AsyncSession = Depends
     """学生登录（学号+密码）"""
     # 速率限制：登录 20次/分钟
     try:
-        from main import limiter, HAS_RATE_LIMIT
-        if HAS_RATE_LIMIT:
-            await limiter.limit(request, "20/minute")
-    except (ImportError, Exception):
+        if hasattr(request.app.state, "limiter"):
+            await request.app.state.limiter.limit(request, "20/minute")
+    except Exception:
         pass
     try:
         student = (await db.execute(
@@ -338,10 +338,9 @@ async def teacher_login(body: TeacherLogin, request: Request, db: AsyncSession =
     """教师登录"""
     # 速率限制：登录 10次/分钟
     try:
-        from main import limiter, HAS_RATE_LIMIT
-        if HAS_RATE_LIMIT:
-            await limiter.limit(request, "10/minute")
-    except (ImportError, Exception):
+        if hasattr(request.app.state, "limiter"):
+            await request.app.state.limiter.limit(request, "10/minute")
+    except Exception:
         pass
     teacher = (await db.execute(
         select(Teacher).filter(Teacher.username == body.username, Teacher.is_deleted == False)
