@@ -1,12 +1,11 @@
 """
 OpenModel / OpenAI 兼容 API 调用服务
-支持任何兼容 OpenAI Chat Completions API 的模型提供商
-默认使用 Agnes AI Flash（便宜、支持多模态图片识别）
-可在管理后台切换为 DeepSeek、OpenAI 等其他模型
 """
 import asyncio
 import json
 import logging
+import os
+import sys
 import threading
 from typing import Optional, TYPE_CHECKING
 
@@ -147,7 +146,7 @@ class OpenModelService:
                 content = self._extract_content(data)
 
                 if not content:
-                    logger.warning(f"API 返回空内容: {json.dumps(data)[:300]}")
+                    logger.warning(f"API 返回空内容")
                     continue
 
                 result = self._parse_json_response(content)

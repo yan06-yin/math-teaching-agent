@@ -3,8 +3,19 @@ FastAPI 主应用入口
 """
 import logging
 import os
+import sys
 import traceback
 from contextlib import asynccontextmanager
+
+# Windows 编码兼容（确保中文正确处理）
+if os.name == "nt":
+    os.environ.setdefault("PYTHONUTF8", "1")
+    import io
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
